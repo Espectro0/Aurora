@@ -11,6 +11,7 @@ type Config struct {
 	DiscordToken    string
 	NvidiaApiKey    string
 	NvidiaModel     string
+	ReflectionModel string
 	EmbedderModel   string
 	EmbedderBaseURL string
 }
@@ -23,10 +24,16 @@ func LoadConfig() (*Config, error) {
 		embedderBaseURL = "https://integrate.api.nvidia.com/v1"
 	}
 
+	reflectionModel := os.Getenv("NVIDIA_REFLECTION_MODEL")
+	if reflectionModel == "" {
+		reflectionModel = mustGetenv("NVIDIA_MODEL")
+	}
+
 	return &Config{
 		DiscordToken:    mustGetenv("DISCORD_TOKEN"),
 		NvidiaApiKey:    mustGetenv("NVIDIA_API_KEY"),
 		NvidiaModel:     mustGetenv("NVIDIA_MODEL"),
+		ReflectionModel: reflectionModel,
 		EmbedderModel:   mustGetenv("NVIDIA_EMBEDDER_MODEL"),
 		EmbedderBaseURL: embedderBaseURL,
 	}, nil

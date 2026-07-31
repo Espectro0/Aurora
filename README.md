@@ -32,20 +32,6 @@ The language model is interchangeable and does not store permanent state. All pe
 - **Cayley** or a custom implementation for the cognitive graph.
 - Interchangeable LLM providers.
 
-## Roadmap
-
-- [x] Basic Discord bot implementation
-- [x] Embedding system
-- [x] chromem-go integration
-- [x] Semantic memory retrieval
-- [x] Automatic reflection on memories
-- [ ] Persistent cognitive graph
-- [ ] Emergent interest detection
-- [ ] Knowledge consolidation
-- [ ] Inspection and visualization tools for cognitive state
-- [ ] Dashboard for exploring memory, relationships, and interests
-- [ ] Physical robot prototype
-
 ## License
 
 This project is licensed under the Mozilla Public License 2.0 (MPL-2.0). You can review the full text in [LICENSE](LICENSE).

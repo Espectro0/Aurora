@@ -46,7 +46,17 @@ func (p *MemoryProcessor) Process(ctx context.Context, prop Proposal) error {
 		return nil
 	}
 
-	for _, np := range prop.Memory.Nodes {
+	nodes := prop.Memory.Nodes
+	seen := make(map[string]bool, len(nodes))
+	dedup := nodes[:0]
+	for _, np := range nodes {
+		if l := normalizeLabel(np.Type, np.Label); !seen[l] {
+			seen[l] = true
+			dedup = append(dedup, np)
+		}
+	}
+
+	for _, np := range dedup {
 		target, err := p.ensureNode(ctx, np, prop.Timestamp)
 		if err != nil {
 			return err
@@ -76,9 +86,10 @@ func (p *MemoryProcessor) ensureNode(ctx context.Context, np NodeProp, ts time.T
 	}
 
 	var best *memory.Node
+	targetType := memory.NodeType(np.Type)
 	for i := range results {
 		n := &results[i]
-		if n.Type == memory.NodeReflection {
+		if n.Type != targetType {
 			continue
 		}
 		if best == nil || n.Similarity > best.Similarity {

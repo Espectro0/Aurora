@@ -49,9 +49,8 @@ func (c *Client) Chat(ctx context.Context, messages []conversation.Message) (str
 		"model":       c.model,
 		"messages":    nvMessages,
 		"temperature": 1,
-		"top_p":       0.95,
-		"max_tokens":  4096,
-		"seed":        42,
+		"top_p":       0.8,
+		"max_tokens":  8192,
 		"stream":      false,
 	}
 	jsonBody, _ := json.Marshal(body)

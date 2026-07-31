@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"sync"
 	"time"
@@ -13,6 +14,8 @@ import (
 	"github.com/Espectro0/AuroraProject/internal/memory"
 	"github.com/philippgille/chromem-go"
 )
+
+const clusterThreshold = 0.70
 
 type Store struct {
 	mu         sync.RWMutex
@@ -108,6 +111,12 @@ func (s *Store) CreateEdge(ctx context.Context, edge memory.Edge) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	for _, existing := range s.edges[edge.SourceID] {
+		if existing.TargetID == edge.TargetID && existing.Type == edge.Type {
+			return nil
+		}
+	}
+
 	s.edges[edge.SourceID] = append(s.edges[edge.SourceID], edge)
 
 	return s.saveEdges()
@@ -124,7 +133,46 @@ func (s *Store) GetEdges(ctx context.Context, nodeID string) ([]memory.Edge, err
 }
 
 func (s *Store) FindClusters(ctx context.Context, minClusterSize int) ([][]memory.Node, error) {
-	return nil, nil
+	count := s.collection.Count()
+	if count == 0 {
+		return nil, nil
+	}
+
+	results, err := s.collection.Query(ctx, "memorias", count, map[string]string{"type": string(memory.NodeConcept)}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("chromem: cluster query: %w", err)
+	}
+
+	if len(results) < minClusterSize {
+		return nil, nil
+	}
+
+	assigned := make([]bool, len(results))
+	var clusters [][]memory.Node
+
+	for i := range results {
+		if assigned[i] {
+			continue
+		}
+		assigned[i] = true
+
+		cluster := []memory.Node{resultToNode(results[i])}
+		for j := range results {
+			if i == j || assigned[j] {
+				continue
+			}
+			if cosine(results[i].Embedding, results[j].Embedding) >= clusterThreshold {
+				assigned[j] = true
+				cluster = append(cluster, resultToNode(results[j]))
+			}
+		}
+
+		if len(cluster) >= minClusterSize {
+			clusters = append(clusters, cluster)
+		}
+	}
+
+	return clusters, nil
 }
 
 func (s *Store) Close() error {
@@ -143,8 +191,7 @@ func (s *Store) saveEdges() error {
 	return os.WriteFile(s.path+".edges.json", raw, 0644)
 }
 
-func (s *Store) loadEdges() error {
-	raw, err := os.ReadFile(s.path + ".edges.json")
+func (s *Store) loadEdges() error {	raw, err := os.ReadFile(s.path + ".edges.json")
 	if err != nil {
 		return nil
 	}
@@ -206,4 +253,19 @@ func resultToNode(r chromem.Result) memory.Node {
 		CreatedAt:  createdAt,
 		Similarity: float64(r.Similarity),
 	}
+}
+
+func cosine(a, b []float32) float64 {
+	var dot, na, nb float64
+	for i := range a {
+		va := float64(a[i])
+		vb := float64(b[i])
+		dot += va * vb
+		na += va * va
+		nb += vb * vb
+	}
+	if na == 0 || nb == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(na) * math.Sqrt(nb))
 }

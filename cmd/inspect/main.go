@@ -57,7 +57,30 @@ func main() {
 	}
 	printEdges(byID)
 
+	clusters, err := store.FindClusters(ctx, 2)
+	if err != nil {
+		fmt.Printf("\nINTERESES EMERGENTES — error: %v\n", err)
+	} else {
+		fmt.Printf("\nINTERESES EMERGENTES (%d)\n", len(clusters))
+		for i, c := range clusters {
+			fmt.Printf("  [%d] %s (%d recuerdos)\n", i+1, clusterLabel(c), len(c))
+			for _, m := range c {
+				fmt.Printf("        - %s\n", m.Content)
+			}
+		}
+	}
+
 	journalStatus()
+}
+
+func clusterLabel(cluster []memory.Node) string {
+	best := cluster[0]
+	for _, n := range cluster[1:] {
+		if len(n.Content) < len(best.Content) {
+			best = n
+		}
+	}
+	return labelOf(best)
 }
 
 func labelOf(n memory.Node) string {

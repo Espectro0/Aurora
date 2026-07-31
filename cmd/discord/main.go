@@ -29,7 +29,7 @@ func main() {
 	}
 
 	llmClient := llmnvidia.New(cfg.NvidiaApiKey, cfg.NvidiaModel, 60)
-	reflectLLM := llmnvidia.New(cfg.NvidiaApiKey, cfg.NvidiaModel, 120)
+	reflectLLM := llmnvidia.New(cfg.NvidiaApiKey, cfg.ReflectionModel, 120)
 
 	emb := embednvidia.New(cfg.NvidiaApiKey, cfg.EmbedderModel, cfg.EmbedderBaseURL, 30)
 	memStore, err := chromem.NewStore("aurora", emb)

@@ -42,10 +42,16 @@ func (r *Reflector) Interval() int {
 	return r.config.Interval
 }
 
+const maxHistory = 20
+
 func (r *Reflector) Analyze(ctx context.Context, userID string) error {
 	history := r.memory.History(userID)
 	if len(history) == 0 {
 		return nil
+	}
+
+	if len(history) > maxHistory {
+		history = history[len(history)-maxHistory:]
 	}
 
 	msgs := []conversation.Message{
@@ -60,7 +66,18 @@ func (r *Reflector) Analyze(ctx context.Context, userID string) error {
 
 	prop, err := r.parseResponse(response)
 	if err != nil {
-		return fmt.Errorf("reflection: parse: %w", err)
+		retryMsgs := append([]conversation.Message{}, msgs...)
+		retryMsgs = append(retryMsgs, conversation.NewMessage(conversation.System, "Tu respuesta anterior no fue JSON valido. Responde SOLO con el JSON, sin texto adicional."))
+
+		retryResponse, retryErr := r.llm.Chat(ctx, retryMsgs)
+		if retryErr != nil {
+			return fmt.Errorf("reflection: chat retry: %w", retryErr)
+		}
+
+		prop, retryErr = r.parseResponse(retryResponse)
+		if retryErr != nil {
+			return fmt.Errorf("reflection: parse: %w", retryErr)
+		}
 	}
 
 	if err := r.proposals.Process(ctx, prop); err != nil {
@@ -72,11 +89,13 @@ func (r *Reflector) Analyze(ctx context.Context, userID string) error {
 }
 
 func (r *Reflector) parseResponse(raw string) (proposals.Proposal, error) {
+	raw = stripCodeFences(raw)
+
 	start := strings.Index(raw, "{")
 	end := strings.LastIndex(raw, "}")
 
 	if start == -1 || end == -1 || end <= start {
-		return proposals.Proposal{}, fmt.Errorf("I did'nt get JSON on response")
+		return proposals.Proposal{}, fmt.Errorf("no JSON object in response")
 	}
 
 	jsonBlock := raw[start : end+1]
@@ -92,4 +111,19 @@ func (r *Reflector) parseResponse(raw string) (proposals.Proposal, error) {
 	prop.Timestamp = time.Now()
 
 	return prop, nil
+}
+
+func stripCodeFences(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(raw, "```") {
+		if nl := strings.Index(raw, "\n"); nl != -1 {
+			raw = raw[nl+1:]
+		} else {
+			raw = ""
+		}
+		if idx := strings.LastIndex(raw, "```"); idx != -1 {
+			raw = raw[:idx]
+		}
+	}
+	return strings.TrimSpace(raw)
 }

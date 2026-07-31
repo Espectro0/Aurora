@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/Espectro0/AuroraProject/internal/conversation"
 	"github.com/Espectro0/AuroraProject/internal/identity"
@@ -13,6 +15,8 @@ import (
 	"github.com/Espectro0/AuroraProject/internal/reflection"
 )
 
+const interestTTL = 10 * time.Minute
+
 type Agent struct {
 	llm       llm.Provider
 	identity  *identity.Core
@@ -20,6 +24,10 @@ type Agent struct {
 	memStore  memory.MemoryStore
 	reflector *reflection.Reflector
 	msgCount  map[string]int
+
+	interestsMu   sync.Mutex
+	interestsAt   time.Time
+	interestCache [][]memory.Node
 }
 
 func NewAgent(llm llm.Provider, id *identity.Core, memory memory.Store, memStore memory.MemoryStore, reflector *reflection.Reflector) *Agent {
@@ -71,6 +79,19 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 	}
 
 	history = append(history, a.memory.History(userID)...)
+
+	if a.memStore != nil {
+		if clusters := a.interests(ctx); len(clusters) > 0 {
+			var b strings.Builder
+			b.WriteString("Intereses emergentes: temas sobre los que has hablado con frecuencia y te interesan.\n")
+			b.WriteString("Si el usuario menciona alguno de estos temas, puedes responder con naturalidad y profundidad.\n\n")
+			for _, c := range clusters {
+				b.WriteString(fmt.Sprintf("- %s (%d recuerdos)\n", interestLabel(c), len(c)))
+			}
+			history = append(history, conversation.NewMessage(conversation.System, b.String()))
+			log.Printf("[agent] interests injected: %d", len(clusters))
+		}
+	}
 
 	response, err := a.llm.Chat(ctx, history)
 	if err != nil {
@@ -125,4 +146,39 @@ func buildSystemMessage(id identity.IdentityCore) string {
 	}
 
 	return b.String()
+}
+
+func (a *Agent) interests(ctx context.Context) [][]memory.Node {
+	a.interestsMu.Lock()
+	defer a.interestsMu.Unlock()
+
+	if time.Since(a.interestsAt) < interestTTL {
+		return a.interestCache
+	}
+
+	clusters, err := a.memStore.FindClusters(ctx, 2)
+	if err != nil {
+		log.Printf("[agent] interests error: %v", err)
+		return nil
+	}
+
+	log.Printf("[agent] interests recomputed: %d clusters", len(clusters))
+
+	a.interestCache = clusters
+	a.interestsAt = time.Now()
+	return clusters
+}
+
+func interestLabel(cluster []memory.Node) string {
+	best := cluster[0]
+	for _, n := range cluster[1:] {
+		if len(n.Content) < len(best.Content) {
+			best = n
+		}
+	}
+
+	if idx := strings.Index(best.Content, ":"); idx > 0 {
+		return strings.TrimSpace(best.Content[:idx])
+	}
+	return best.Content
 }
