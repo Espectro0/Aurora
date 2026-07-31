@@ -1,8 +1,14 @@
-<h1>Aurora</h1>
-<img src="assets/images/aurora.png" alt="Aurora" width="150" height="150"
-  style="float:right; margin:8px 0 16px 20px; border-radius:50%; box-shadow:0 2px 6px rgba(0,0,0,0.15);">
-
-Aurora is a persistent conversational agent with identity, memory, and evolving personality.
+<table border="0">
+  <tr>
+    <td width="160" align="center" valign="middle">
+      <img src="assets/images/aurora.png" alt="Aurora" width="150">
+    </td>
+    <td valign="middle">
+      <h1>Aurora</h1>
+      <p>Aurora is a persistent conversational agent with identity, memory, and evolving personality.</p>
+    </td>
+  </tr>
+</table>
 
 It is not designed to be a traditional chatbot or a specialized assistant. Its goal is to build a coherent identity through experience by remembering conversations, learning from them, and developing a richer understanding of the people it interacts with over time.
 
