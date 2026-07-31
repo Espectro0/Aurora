@@ -10,9 +10,11 @@ import (
 	"github.com/Espectro0/AuroraProject/config"
 	"github.com/Espectro0/AuroraProject/internal/agent"
 	"github.com/Espectro0/AuroraProject/internal/discord"
+	embednvidia "github.com/Espectro0/AuroraProject/internal/embedder/nvidia"
 	"github.com/Espectro0/AuroraProject/internal/identity"
-	"github.com/Espectro0/AuroraProject/internal/llm/nvidia"
+	llmnvidia "github.com/Espectro0/AuroraProject/internal/llm/nvidia"
 	"github.com/Espectro0/AuroraProject/internal/memory"
+	"github.com/Espectro0/AuroraProject/internal/memory/chromem"
 	"github.com/Espectro0/AuroraProject/internal/proposals"
 	"github.com/Espectro0/AuroraProject/internal/reflection"
 )
@@ -26,14 +28,22 @@ func main() {
 		return
 	}
 
-	llmClient := nvidia.New(cfg.NvidiaApiKey, cfg.NvidiaModel, 60)
-	reflectLLM := nvidia.New(cfg.NvidiaApiKey, cfg.NvidiaModel, 120)
+	llmClient := llmnvidia.New(cfg.NvidiaApiKey, cfg.NvidiaModel, 60)
+	reflectLLM := llmnvidia.New(cfg.NvidiaApiKey, cfg.NvidiaModel, 120)
+
+	emb := embednvidia.New(cfg.NvidiaApiKey, cfg.EmbedderModel, cfg.EmbedderBaseURL, 30)
+	memStore, err := chromem.NewStore("aurora", emb)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer memStore.Close()
 
 	mem := memory.NewInMemory()
 	idCore := identity.New("aurora.json")
-	propSystem := proposals.NewSimpleProcessor("journal.md")
+	threshold := idCore.Get().MemoryUsageRules.SemanticRelevanceThreshold
+	propSystem := proposals.NewMemoryProcessor(memStore, "journal.md", threshold)
 	reflector := reflection.New(reflectLLM, propSystem, mem, reflection.Config{Interval: 2})
-	a := agent.NewAgent(llmClient, idCore, mem, reflector)
+	a := agent.NewAgent(llmClient, idCore, mem, memStore, reflector)
 	bot := discord.NewBot(cfg.DiscordToken, a)
 
 	log.Println("Aurora Iniciada...")

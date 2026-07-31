@@ -35,10 +35,10 @@ The language model is interchangeable and does not store permanent state. All pe
 ## Roadmap
 
 - [x] Basic Discord bot implementation
-- [ ] Embedding system
-- [ ] chromem-go integration
-- [ ] Semantic memory retrieval
-- [ ] Automatic reflection on memories
+- [x] Embedding system
+- [x] chromem-go integration
+- [x] Semantic memory retrieval
+- [x] Automatic reflection on memories
 - [ ] Persistent cognitive graph
 - [ ] Emergent interest detection
 - [ ] Knowledge consolidation

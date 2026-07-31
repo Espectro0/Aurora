@@ -17,15 +17,17 @@ type Agent struct {
 	llm       llm.Provider
 	identity  *identity.Core
 	memory    memory.Store
+	memStore  memory.MemoryStore
 	reflector *reflection.Reflector
 	msgCount  map[string]int
 }
 
-func NewAgent(llm llm.Provider, id *identity.Core, memory memory.Store, reflector *reflection.Reflector) *Agent {
+func NewAgent(llm llm.Provider, id *identity.Core, memory memory.Store, memStore memory.MemoryStore, reflector *reflection.Reflector) *Agent {
 	return &Agent{
 		llm:       llm,
 		identity:  id,
 		memory:    memory,
+		memStore:  memStore,
 		reflector: reflector,
 		msgCount:  make(map[string]int),
 	}
@@ -35,12 +37,39 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 	userMsg := conversation.NewMessage(conversation.User, message)
 	a.memory.Save(userID, userMsg)
 
-	identity := a.identity.Get()
-	systemContent := buildSystemMessage(identity)
-
 	history := []conversation.Message{
-		conversation.NewMessage(conversation.System, systemContent),
+		conversation.NewMessage(conversation.System, buildSystemMessage(a.identity.Get())),
 	}
+
+	if a.memStore != nil {
+		relevant, err := a.memStore.SearchNodes(ctx, message, 5)
+		if err != nil {
+			log.Printf("[agent] memory search error: %v", err)
+		} else {
+			threshold := a.identity.Get().MemoryUsageRules.SemanticRelevanceThreshold
+			kept := make([]memory.Node, 0, len(relevant))
+			for _, n := range relevant {
+				if n.Similarity >= threshold {
+					kept = append(kept, n)
+				}
+			}
+
+			if len(kept) > 0 {
+				var b strings.Builder
+				b.WriteString("Estos son tus recuerdos a largo plazo recuperados en este momento.\n")
+				b.WriteString("Si el usuario menciona o pregunta por algo de aqui, responde con naturalidad y seguridad como algo que tu recuerdas.\n")
+				b.WriteString("No digas que no recuerdas si la informacion esta aqui.\n\n")
+				for _, n := range kept {
+					b.WriteString(fmt.Sprintf("- %s\n", n.Content))
+				}
+				history = append(history, conversation.NewMessage(conversation.System, b.String()))
+
+				maxSim := kept[0].Similarity
+				log.Printf("[agent] memories injected: %d (max sim %.2f)", len(kept), maxSim)
+			}
+		}
+	}
+
 	history = append(history, a.memory.History(userID)...)
 
 	response, err := a.llm.Chat(ctx, history)

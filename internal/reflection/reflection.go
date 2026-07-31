@@ -89,9 +89,7 @@ func (r *Reflector) parseResponse(raw string) (proposals.Proposal, error) {
 	if prop.ReflectionID == "" {
 		prop.ReflectionID = uuid.New().String()
 	}
-	if prop.Timestamp.IsZero() {
-		prop.Timestamp = time.Now()
-	}
+	prop.Timestamp = time.Now()
 
 	return prop, nil
 }

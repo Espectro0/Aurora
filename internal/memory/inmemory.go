@@ -1,8 +1,6 @@
 package memory
 
-import (
-	"github.com/Espectro0/AuroraProject/internal/conversation"
-)
+import "github.com/Espectro0/AuroraProject/internal/conversation"
 
 type InMemory struct {
 	conversations map[string][]conversation.Message

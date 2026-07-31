@@ -8,18 +8,27 @@ import (
 )
 
 type Config struct {
-	DiscordToken string
-	NvidiaApiKey string
-	NvidiaModel  string
+	DiscordToken    string
+	NvidiaApiKey    string
+	NvidiaModel     string
+	EmbedderModel   string
+	EmbedderBaseURL string
 }
 
 func LoadConfig() (*Config, error) {
 	godotenv.Load()
 
+	embedderBaseURL := os.Getenv("EMBEDDER_BASE_URL")
+	if embedderBaseURL == "" {
+		embedderBaseURL = "https://integrate.api.nvidia.com/v1"
+	}
+
 	return &Config{
-		DiscordToken: mustGetenv("DISCORD_TOKEN"),
-		NvidiaApiKey: mustGetenv("NVIDIA_API_KEY"),
-		NvidiaModel:  mustGetenv("NVIDIA_MODEL"),
+		DiscordToken:    mustGetenv("DISCORD_TOKEN"),
+		NvidiaApiKey:    mustGetenv("NVIDIA_API_KEY"),
+		NvidiaModel:     mustGetenv("NVIDIA_MODEL"),
+		EmbedderModel:   mustGetenv("NVIDIA_EMBEDDER_MODEL"),
+		EmbedderBaseURL: embedderBaseURL,
 	}, nil
 }
 
