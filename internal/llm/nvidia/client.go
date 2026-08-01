@@ -50,7 +50,7 @@ func (c *Client) Chat(ctx context.Context, messages []conversation.Message) (str
 		"messages":    nvMessages,
 		"temperature": 1,
 		"top_p":       0.8,
-		"max_tokens":  8192,
+		"max_tokens":  512,
 		"stream":      false,
 	}
 	jsonBody, _ := json.Marshal(body)

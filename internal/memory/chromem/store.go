@@ -180,7 +180,7 @@ func (s *Store) FindClusters(ctx context.Context, minClusterSize int) ([][]memor
 			if i == j || assigned[j] {
 				continue
 			}
-			if cosine(results[i].Embedding, results[j].Embedding) >= clusterThreshold {
+			if cosine(results[i].Embedding, results[j].Embedding) >= s.clusterThreshold {
 				assigned[j] = true
 				cluster = append(cluster, resultToNode(results[j]))
 			}

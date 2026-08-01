@@ -2,8 +2,11 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -15,8 +18,6 @@ import (
 	"github.com/Espectro0/AuroraProject/internal/reflection"
 )
 
-const interestTTL = 10 * time.Minute
-
 type Agent struct {
 	llm       llm.Provider
 	identity  *identity.Core
@@ -25,9 +26,16 @@ type Agent struct {
 	reflector *reflection.Reflector
 	msgCount  map[string]int
 
-	interestsMu   sync.Mutex
-	interestsAt   time.Time
-	interestCache [][]memory.Node
+	reflectMu sync.Mutex
+	reflectWG sync.WaitGroup
+
+	interestsMu         sync.Mutex
+	interestsAt         time.Time
+	interestCache       [][]memory.Node
+	interestsRefreshing bool
+	lastReflectionMu    sync.Mutex
+	lastReflection      memory.Node
+	lastReflectionAt    time.Time
 }
 
 func NewAgent(llm llm.Provider, id *identity.Core, memory memory.Store, memStore memory.MemoryStore, reflector *reflection.Reflector) *Agent {
@@ -50,15 +58,42 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 	}
 
 	if a.memStore != nil {
-		relevant, err := a.memStore.SearchNodes(ctx, message, 5)
+		rules := a.identity.Get().MemoryUsageRules
+
+		limit := rules.MaxContextMemories
+		if limit <= 0 {
+			limit = 5
+		}
+
+		relevant, err := a.searchMemories(ctx, message, limit)
 		if err != nil {
 			log.Printf("[agent] memory search error: %v", err)
 		} else {
-			threshold := a.identity.Get().MemoryUsageRules.SemanticRelevanceThreshold
 			kept := make([]memory.Node, 0, len(relevant))
 			for _, n := range relevant {
-				if n.Similarity >= threshold {
+				if n.Similarity >= rules.SemanticRelevanceThreshold {
 					kept = append(kept, n)
+				}
+			}
+
+			if len(kept) == 0 && len(relevant) > 0 {
+				fallback := relevant
+				if len(fallback) > 2 {
+					fallback = fallback[:2]
+				}
+				kept = fallback
+				log.Printf("[agent] recall fallback: %d (max score %.2f)", len(kept), kept[0].Similarity)
+			}
+
+			if rules.RecencyWeight > 0 && len(kept) > 1 {
+				applyRecency(kept, rules.RecencyWeight)
+			}
+
+			if a.memStore != nil {
+				if latest := a.latestReflection(ctx); !latest.CreatedAt.IsZero() {
+					history = append(history, conversation.NewMessage(conversation.System, fmt.Sprintf(
+						"Contexto de la última conversación recordada: %s", latest.Content)))
+					log.Printf("[agent] latest reflection injected")
 				}
 			}
 
@@ -72,8 +107,7 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 				}
 				history = append(history, conversation.NewMessage(conversation.System, b.String()))
 
-				maxSim := kept[0].Similarity
-				log.Printf("[agent] memories injected: %d (max sim %.2f)", len(kept), maxSim)
+				log.Printf("[agent] memories injected: %d (max score %.2f)", len(kept), kept[0].Similarity)
 			}
 		}
 	}
@@ -105,7 +139,11 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 		a.msgCount[userID]++
 		if a.msgCount[userID] >= a.reflector.Interval() {
 			a.msgCount[userID] = 0
+			a.reflectWG.Add(1)
 			go func() {
+				defer a.reflectWG.Done()
+				a.reflectMu.Lock()
+				defer a.reflectMu.Unlock()
 				if err := a.reflector.Analyze(context.Background(), userID); err != nil {
 					log.Printf("[agent] reflection error: %v", err)
 				}
@@ -114,6 +152,48 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 	}
 
 	return response, nil
+}
+
+func (a *Agent) Wait() {
+	a.reflectWG.Wait()
+}
+
+func (a *Agent) searchMemories(ctx context.Context, query string, limit int) ([]memory.Node, error) {
+	timeout := a.identity.Get().LLM.EmbedderTimeoutSeconds + 5
+	log.Printf("[agent] Searching in Memories...")
+	if timeout <= 0 {
+		timeout = 35
+	}
+
+	var lastErr error
+
+	for attempt := 0; attempt < 2; attempt++ {
+		searchCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+		nodes, err := a.memStore.SearchNodes(searchCtx, query, limit)
+		cancel()
+
+		if err == nil {
+			return nodes, nil
+		}
+
+		lastErr = err
+		log.Printf("[agent] memory search error (intento %d/2): %v", attempt+1, err)
+
+		if isTimeout(err) {
+			return nil, err
+		}
+	}
+
+	return nil, lastErr
+}
+
+func isTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func buildSystemMessage(id identity.IdentityCore) string {
@@ -152,21 +232,102 @@ func (a *Agent) interests(ctx context.Context) [][]memory.Node {
 	a.interestsMu.Lock()
 	defer a.interestsMu.Unlock()
 
-	if time.Since(a.interestsAt) < interestTTL {
+	rules := a.identity.Get().MemoryUsageRules
+
+	ttl := time.Duration(rules.InterestTTLMinutes) * time.Minute
+	if ttl <= 0 {
+		ttl = 10 * time.Minute
+	}
+
+	if time.Since(a.interestsAt) < ttl || a.interestsRefreshing {
 		return a.interestCache
 	}
 
-	clusters, err := a.memStore.FindClusters(ctx, 2)
+	if ctx.Err() != nil {
+		return a.interestCache
+	}
+
+	a.interestsRefreshing = true
+	a.reflectWG.Add(1)
+	go func() {
+		defer a.reflectWG.Done()
+		a.refreshInterests(ctx)
+	}()
+
+	return a.interestCache
+}
+
+func (a *Agent) refreshInterests(ctx context.Context) {
+	defer func() {
+		a.interestsMu.Lock()
+		a.interestsRefreshing = false
+		a.interestsMu.Unlock()
+	}()
+
+	rules := a.identity.Get().MemoryUsageRules
+
+	minCluster := rules.MinClusterSize
+	if minCluster <= 0 {
+		minCluster = 2
+	}
+
+	clusters, err := a.memStore.FindClusters(ctx, minCluster)
 	if err != nil {
 		log.Printf("[agent] interests error: %v", err)
-		return nil
+		return
 	}
 
 	log.Printf("[agent] interests recomputed: %d clusters", len(clusters))
 
+	a.interestsMu.Lock()
 	a.interestCache = clusters
 	a.interestsAt = time.Now()
-	return clusters
+	a.interestsMu.Unlock()
+}
+
+func (a *Agent) latestReflection(ctx context.Context) memory.Node {
+	a.lastReflectionMu.Lock()
+	defer a.lastReflectionMu.Unlock()
+
+	if !a.lastReflection.CreatedAt.IsZero() && time.Since(a.lastReflectionAt) < 5*time.Minute {
+		return a.lastReflection
+	}
+
+	node, err := a.memStore.LatestedReflections(ctx)
+	if err != nil {
+		log.Printf("[agent] latest reflection error: %v", err)
+		return a.lastReflection
+	}
+
+	if !node.CreatedAt.IsZero() {
+		a.lastReflection = node
+		a.lastReflectionAt = time.Now()
+	}
+
+	return node
+}
+
+func applyRecency(nodes []memory.Node, w float64) {
+	newest, oldest := nodes[0].CreatedAt, nodes[0].CreatedAt
+	for _, n := range nodes {
+		if n.CreatedAt.After(newest) {
+			newest = n.CreatedAt
+		}
+		if n.CreatedAt.Before(oldest) {
+			oldest = n.CreatedAt
+		}
+	}
+
+	span := newest.Sub(oldest)
+	for i := range nodes {
+		r := 1.0
+		if span > 0 {
+			r = nodes[i].CreatedAt.Sub(oldest).Seconds() / span.Seconds()
+		}
+		nodes[i].Similarity = (1-w)*nodes[i].Similarity + w*r
+	}
+
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Similarity > nodes[j].Similarity })
 }
 
 func interestLabel(cluster []memory.Node) string {
