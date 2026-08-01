@@ -26,8 +26,10 @@ type Options struct {
 	BinPath     string
 	ChatModel   string
 	EmbedModel  string
+	CodeModel   string
 	ChatPort    int
 	EmbedPort   int
+	CodePort    int
 	Context     int
 	IdleTimeout time.Duration
 }
@@ -38,12 +40,15 @@ type ServerManager struct {
 	context     int
 	chatModel   string
 	embedModel  string
+	codeModel   string
 	chatPort    int
 	embedPort   int
+	codePort    int
 	idleTimeout time.Duration
 
 	chat   *instance
 	embed  *instance
+	code   *instance
 	closed bool
 }
 
@@ -66,8 +71,10 @@ func New(o Options) *ServerManager {
 		context:     o.Context,
 		chatModel:   o.ChatModel,
 		embedModel:  o.EmbedModel,
+		codeModel:   o.CodeModel,
 		chatPort:    o.ChatPort,
 		embedPort:   o.EmbedPort,
+		codePort:    o.CodePort,
 		idleTimeout: o.IdleTimeout,
 	}
 }
@@ -78,6 +85,10 @@ func (m *ServerManager) EnsureChat(ctx context.Context) (string, error) {
 
 func (m *ServerManager) EnsureEmbed(ctx context.Context) (string, error) {
 	return m.ensure(ctx, "embed", m.embedModel, m.embedPort, true)
+}
+
+func (m *ServerManager) EnsureCode(ctx context.Context) (string, error) {
+	return m.ensure(ctx, "code", m.codeModel, m.codePort, false)
 }
 
 func (m *ServerManager) ensure(ctx context.Context, kind, model string, port int, embeddings bool) (string, error) {
@@ -262,17 +273,71 @@ func (i *instance) kill() {
 }
 
 func (m *ServerManager) instanceFor(kind string) *instance {
-	if kind == "chat" {
+	switch kind {
+	case "chat":
 		return m.chat
+	case "embed":
+		return m.embed
+	case "code":
+		return m.code
+	default:
+		return nil
 	}
-	return m.embed
+}
+
+type InstanceInfo struct {
+	Kind     string
+	Model    string
+	Port     int
+	Running  bool
+	BaseURL  string
+}
+
+func (m *ServerManager) Info() []InstanceInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	chat := m.chat
+	embed := m.embed
+	code := m.code
+
+	return []InstanceInfo{
+		{
+			Kind:    "chat",
+			Model:   m.chatModel,
+			Port:    m.chatPort,
+			Running: chat != nil && chat.alive(),
+			BaseURL: baseURLForPort(m.chatPort),
+		},
+		{
+			Kind:    "embed",
+			Model:   m.embedModel,
+			Port:    m.embedPort,
+			Running: embed != nil && embed.alive(),
+			BaseURL: baseURLForPort(m.embedPort),
+		},
+		{
+			Kind:    "code",
+			Model:   m.codeModel,
+			Port:    m.codePort,
+			Running: code != nil && code.alive(),
+			BaseURL: baseURLForPort(m.codePort),
+		},
+	}
+}
+
+func baseURLForPort(port int) string {
+	return fmt.Sprintf("http://127.0.0.1:%d/v1", port)
 }
 
 func (m *ServerManager) setInstance(kind string, inst *instance) {
-	if kind == "chat" {
+	switch kind {
+	case "chat":
 		m.chat = inst
-	} else {
+	case "embed":
 		m.embed = inst
+	case "code":
+		m.code = inst
 	}
 }
 
@@ -293,8 +358,10 @@ func (m *ServerManager) Close() {
 	m.closed = true
 	chat := m.chat
 	embed := m.embed
+	code := m.code
 	m.chat = nil
 	m.embed = nil
+	m.code = nil
 	m.mu.Unlock()
 
 	if chat != nil {
@@ -302,5 +369,8 @@ func (m *ServerManager) Close() {
 	}
 	if embed != nil {
 		embed.kill()
+	}
+	if code != nil {
+		code.kill()
 	}
 }

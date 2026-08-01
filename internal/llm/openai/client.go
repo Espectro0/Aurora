@@ -21,14 +21,20 @@ type Client struct {
 	model        string
 	baseURL      string
 	baseProvider baseURLProvider
+	maxTokens    int
 	http         *http.Client
 }
 
 func New(model string, timeout time.Duration) *Client {
 	return &Client{
-		model: model,
-		http:  &http.Client{Timeout: timeout},
+		model:     model,
+		maxTokens: 512,
+		http:      &http.Client{Timeout: timeout},
 	}
+}
+
+func (c *Client) SetMaxTokens(n int) {
+	c.maxTokens = n
 }
 
 func (c *Client) SetBaseURL(baseURL string) {
@@ -73,7 +79,7 @@ func (c *Client) Chat(ctx context.Context, messages []conversation.Message) (str
 		"messages":    reqMessages,
 		"temperature": 1,
 		"top_p":       0.8,
-		"max_tokens":  512,
+		"max_tokens":  c.maxTokens,
 		"stream":      false,
 	}
 	jsonBody, _ := json.Marshal(body)

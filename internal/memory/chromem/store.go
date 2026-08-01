@@ -189,8 +189,7 @@ func (s *Store) GetNeighbors(ctx context.Context, nodeID string, limit int) ([]m
 	return nodes, nil
 }
 
-func (s *Store) FindClusters(ctx context.Context, minClusterSize int) ([][]memory.Node, error) {
-	count := s.collection.Count()
+func (s *Store) FindClusters(ctx context.Context, minClusterSize int) ([][]memory.Node, error) {	count := s.collection.Count()
 	if count == 0 {
 		return nil, nil
 	}
@@ -230,6 +229,23 @@ func (s *Store) FindClusters(ctx context.Context, minClusterSize int) ([][]memor
 	}
 
 	return clusters, nil
+}
+
+func (s *Store) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.collection.Count()
+}
+
+func (s *Store) Edges() []memory.Edge {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []memory.Edge
+	for _, edges := range s.edges {
+		result = append(result, edges...)
+	}
+	return result
 }
 
 func (s *Store) LatestedReflections(ctx context.Context) (memory.Node, error) {

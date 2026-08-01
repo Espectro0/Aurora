@@ -21,6 +21,7 @@ type Config struct {
 	LlamaCodeModel  string
 	LlamaPortChat   int
 	LlamaPortEmbed  int
+	LlamaPortCode   int
 	LlamaContext    int
 	LlamaIdleMin    int
 }
@@ -40,6 +41,7 @@ func LoadConfig() (*Config, error) {
 		LlamaCodeModel:  getenv("LLAMA_CODE_MODEL_PATH", ""),
 		LlamaPortChat:   getenvInt("LLAMA_PORT_CHAT", 8080),
 		LlamaPortEmbed:  getenvInt("LLAMA_PORT_EMBED", 8081),
+		LlamaPortCode:   getenvInt("LLAMA_PORT_CODE", 8082),
 		LlamaContext:    getenvInt("LLAMA_CONTEXT", 4096),
 		LlamaIdleMin:    getenvInt("LLAMA_IDLE_TIMEOUT_MINUTES", 10),
 	}, nil

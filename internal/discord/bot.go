@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Espectro0/AuroraProject/internal/agent"
+	"github.com/Espectro0/AuroraProject/internal/discord/commands"
 	"github.com/Espectro0/AuroraProject/internal/transcription"
 
 	"github.com/disgoorg/disgo"
@@ -26,15 +27,17 @@ type Bot struct {
 	agent                agent.Service
 	transcription        transcription.Provider
 	transcriptionTimeout time.Duration
+	commands             *commands.Commands
 	client               *bot.Client
 }
 
-func NewBot(token string, agent agent.Service, transcription transcription.Provider, transcriptionTimeout time.Duration) *Bot {
+func NewBot(token string, agent agent.Service, transcription transcription.Provider, transcriptionTimeout time.Duration, commands *commands.Commands) *Bot {
 	return &Bot{
 		token:                token,
 		agent:                agent,
 		transcription:        transcription,
 		transcriptionTimeout: transcriptionTimeout,
+		commands:             commands,
 	}
 }
 
@@ -47,6 +50,13 @@ func (b *Bot) Run(ctx context.Context) error {
 	)
 	if err != nil {
 		return err
+	}
+
+	if b.commands != nil {
+		client.AddEventListeners(b.commands.Mux())
+		if _, err := client.Rest.SetGlobalCommands(client.ApplicationID, b.commands.Definitions()); err != nil {
+			log.Printf("[discord] error registering commands: %v", err)
+		}
 	}
 	b.client = client
 
@@ -82,9 +92,7 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 		return
 	}
 
-	if _, err := e.Client().Rest.CreateMessage(e.ChannelID, ddiscord.MessageCreate{Content: response}); err != nil {
-		log.Printf("error sending message: %v", err)
-	}
+	b.sendMessage(e, response)
 }
 
 func (b *Bot) handleAudioMessage(e *events.MessageCreate, att *ddiscord.Attachment) {
@@ -124,7 +132,56 @@ func (b *Bot) handleAudioMessage(e *events.MessageCreate, att *ddiscord.Attachme
 		return
 	}
 
-	if _, err := e.Client().Rest.CreateMessage(e.ChannelID, ddiscord.MessageCreate{Content: response}); err != nil {
+	b.sendMessage(e, response)
+}
+
+const maxMessageLen = 2000
+
+func chunkText(s string, max int) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+
+	runes := []rune(s)
+	var chunks []string
+	for len(runes) > max {
+		cut := max
+		if idx := strings.LastIndex(string(runes[:max]), "\n"); idx > 0 {
+			cut = idx + 1
+		}
+		chunks = append(chunks, strings.TrimSpace(string(runes[:cut])))
+		runes = runes[cut:]
+	}
+	if len(runes) > 0 {
+		chunks = append(chunks, strings.TrimSpace(string(runes)))
+	}
+	return chunks
+}
+
+func (b *Bot) sendMessage(e *events.MessageCreate, content string) {
+	chunks := chunkText(content, maxMessageLen)
+	if len(chunks) == 0 {
+		return
+	}
+	if len(chunks) == 1 {
+		b.sendChunk(e, chunks[0])
+		return
+	}
+
+	total := len(chunks)
+	for i, chunk := range chunks {
+		prefix := fmt.Sprintf("[%d/%d] ", i+1, total)
+		room := maxMessageLen - len([]rune(prefix))
+		if len([]rune(chunk)) > room {
+			chunk = string([]rune(chunk)[:room])
+		}
+		b.sendChunk(e, prefix+chunk)
+	}
+}
+
+func (b *Bot) sendChunk(e *events.MessageCreate, content string) {
+	if _, err := e.Client().Rest.CreateMessage(e.ChannelID, ddiscord.MessageCreate{Content: content}); err != nil {
 		log.Printf("error sending message: %v", err)
 	}
 }

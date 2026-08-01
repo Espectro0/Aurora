@@ -11,6 +11,7 @@ import (
 	"github.com/Espectro0/AuroraProject/config"
 	"github.com/Espectro0/AuroraProject/internal/agent"
 	"github.com/Espectro0/AuroraProject/internal/discord"
+	"github.com/Espectro0/AuroraProject/internal/discord/commands"
 	embedopenai "github.com/Espectro0/AuroraProject/internal/embedder/openai"
 	"github.com/Espectro0/AuroraProject/internal/identity"
 	"github.com/Espectro0/AuroraProject/internal/llm/openai"
@@ -39,17 +40,21 @@ func main() {
 		BinPath:     cfg.LlamaBinPath,
 		ChatModel:   cfg.LlamaChatModel,
 		EmbedModel:  cfg.LlamaEmbedModel,
+		CodeModel:   cfg.LlamaCodeModel,
 		ChatPort:    cfg.LlamaPortChat,
 		EmbedPort:   cfg.LlamaPortEmbed,
+		CodePort:    cfg.LlamaPortCode,
 		Context:     cfg.LlamaContext,
 		IdleTimeout: time.Duration(cfg.LlamaIdleMin) * time.Minute,
 	})
 	defer manager.Close()
 
 	llmClient := openai.New("aurora-chat", time.Duration(id.LLM.ChatTimeoutSeconds)*time.Second)
+	llmClient.SetMaxTokens(2048)
 	llmClient.SetBaseURLProvider(manager.EnsureChat)
-	reflectLLM := openai.New("aurora-reflect", time.Duration(id.LLM.ReflectionTimeoutSeconds)*time.Second)
-	reflectLLM.SetBaseURLProvider(manager.EnsureChat)
+	codeLLM := openai.New("aurora-code", time.Duration(id.LLM.ReflectionTimeoutSeconds)*time.Second)
+	codeLLM.SetMaxTokens(8192)
+	codeLLM.SetBaseURLProvider(manager.EnsureCode)
 
 	emb := embedopenai.New("aurora-embed", time.Duration(id.LLM.EmbedderTimeoutSeconds)*time.Second)
 	emb.SetBaseURLProvider(manager.EnsureEmbed)
@@ -63,13 +68,20 @@ func main() {
 	mem := memory.NewInMemory()
 	threshold := rules.SemanticRelevanceThreshold
 	propSystem := proposals.NewMemoryProcessor(memStore, "data/journal.md", threshold)
-	reflector := reflection.New(reflectLLM, propSystem, mem, reflection.Config{
+	reflector := reflection.New(codeLLM, propSystem, mem, reflection.Config{
 		Interval:   rules.ReflectionInterval,
 		MaxHistory: rules.ReflectionHistory,
 	})
 	a := agent.NewAgent(llmClient, idCore, mem, memStore, reflector)
 	transProvider := whispercpp.New(cfg.SttBinPath, cfg.SttModelPath, cfg.SttLanguage, cfg.FfmpegBinPath)
-	bot := discord.NewBot(cfg.DiscordToken, a, transProvider, time.Duration(id.LLM.TranscriptionTimeoutSeconds)*time.Second)
+	cmds := commands.New(commands.Deps{
+		Identity:    idCore,
+		Memory:      memStore,
+		Manager:     manager,
+		Chat:        llmClient,
+		JournalPath: "data/journal.md",
+	})
+	bot := discord.NewBot(cfg.DiscordToken, a, transProvider, time.Duration(id.LLM.TranscriptionTimeoutSeconds)*time.Second, cmds)
 
 	log.Println("Aurora is running...")
 	if err := bot.Run(ctx); err != nil {
