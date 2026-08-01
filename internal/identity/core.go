@@ -40,7 +40,11 @@ func (c *Core) load() error {
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(raw, &c.identity)
+	if err := json.Unmarshal(raw, &c.identity); err != nil {
+		return err
+	}
+	c.identity.applyDefaults()
+	return nil
 }
 
 func (c *Core) save() error {
@@ -70,6 +74,48 @@ func Default() *IdentityCore {
 			SemanticRelevanceThreshold: 0.65,
 			MaxContextMemories:         15,
 			ReflectionInterval:         5,
+			ReflectionHistory:          20,
+			ClusterThreshold:           0.70,
+			MinClusterSize:             2,
+			InterestTTLMinutes:         10,
 		},
+		LLM: LLMConfig{
+			ChatTimeoutSeconds:       60,
+			ReflectionTimeoutSeconds: 120,
+			EmbedderTimeoutSeconds:   30,
+		},
+	}
+}
+
+func (i *IdentityCore) applyDefaults() {
+	if i.MemoryUsageRules.SemanticRelevanceThreshold == 0 {
+		i.MemoryUsageRules.SemanticRelevanceThreshold = 0.65
+	}
+	if i.MemoryUsageRules.MaxContextMemories == 0 {
+		i.MemoryUsageRules.MaxContextMemories = 15
+	}
+	if i.MemoryUsageRules.ReflectionInterval == 0 {
+		i.MemoryUsageRules.ReflectionInterval = 5
+	}
+	if i.MemoryUsageRules.ReflectionHistory == 0 {
+		i.MemoryUsageRules.ReflectionHistory = 20
+	}
+	if i.MemoryUsageRules.ClusterThreshold == 0 {
+		i.MemoryUsageRules.ClusterThreshold = 0.70
+	}
+	if i.MemoryUsageRules.MinClusterSize == 0 {
+		i.MemoryUsageRules.MinClusterSize = 2
+	}
+	if i.MemoryUsageRules.InterestTTLMinutes == 0 {
+		i.MemoryUsageRules.InterestTTLMinutes = 10
+	}
+	if i.LLM.ChatTimeoutSeconds == 0 {
+		i.LLM.ChatTimeoutSeconds = 60
+	}
+	if i.LLM.ReflectionTimeoutSeconds == 0 {
+		i.LLM.ReflectionTimeoutSeconds = 120
+	}
+	if i.LLM.EmbedderTimeoutSeconds == 0 {
+		i.LLM.EmbedderTimeoutSeconds = 30
 	}
 }

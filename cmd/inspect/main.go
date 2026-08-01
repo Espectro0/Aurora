@@ -13,6 +13,7 @@ import (
 
 	"github.com/Espectro0/AuroraProject/config"
 	embednvidia "github.com/Espectro0/AuroraProject/internal/embedder/nvidia"
+	"github.com/Espectro0/AuroraProject/internal/identity"
 	"github.com/Espectro0/AuroraProject/internal/memory"
 	"github.com/Espectro0/AuroraProject/internal/memory/chromem"
 )
@@ -23,12 +24,17 @@ func main() {
 		log.Fatal(err)
 	}
 
-	emb := embednvidia.New(cfg.NvidiaApiKey, cfg.EmbedderModel, cfg.EmbedderBaseURL, 30)
+	idCore := identity.New("aurora.json")
+	id := idCore.Get()
+	rules := id.MemoryUsageRules
+
+	emb := embednvidia.New(cfg.NvidiaApiKey, cfg.EmbedderModel, cfg.EmbedderBaseURL, time.Duration(id.LLM.EmbedderTimeoutSeconds))
 	store, err := chromem.NewStore("aurora", emb)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer store.Close()
+	store.SetClusterThreshold(rules.ClusterThreshold)
 
 	ctx := context.Background()
 
@@ -57,7 +63,12 @@ func main() {
 	}
 	printEdges(byID)
 
-	clusters, err := store.FindClusters(ctx, 2)
+	minCluster := rules.MinClusterSize
+	if minCluster <= 0 {
+		minCluster = 2
+	}
+
+	clusters, err := store.FindClusters(ctx, minCluster)
 	if err != nil {
 		fmt.Printf("\nINTERESES EMERGENTES — error: %v\n", err)
 	} else {

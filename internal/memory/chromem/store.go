@@ -15,14 +15,15 @@ import (
 	"github.com/philippgille/chromem-go"
 )
 
-const clusterThreshold = 0.70
+const defaultClusterThreshold = 0.70
 
 type Store struct {
-	mu         sync.RWMutex
-	path       string
-	db         *chromem.DB
-	collection *chromem.Collection
-	edges      map[string][]memory.Edge
+	mu               sync.RWMutex
+	path             string
+	db               *chromem.DB
+	collection       *chromem.Collection
+	clusterThreshold float64
+	edges            map[string][]memory.Edge
 }
 
 func NewStore(path string, e embedder.Embedder) (*Store, error) {
@@ -44,10 +45,11 @@ func NewStore(path string, e embedder.Embedder) (*Store, error) {
 	}
 
 	s := &Store{
-		path:       path,
-		db:         db,
-		collection: collection,
-		edges:      make(map[string][]memory.Edge),
+		path:             path,
+		db:               db,
+		collection:       collection,
+		clusterThreshold: defaultClusterThreshold,
+		edges:            make(map[string][]memory.Edge),
 	}
 
 	if err := s.loadEdges(); err != nil {
@@ -55,6 +57,15 @@ func NewStore(path string, e embedder.Embedder) (*Store, error) {
 	}
 
 	return s, nil
+}
+
+func (s *Store) SetClusterThreshold(v float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if v > 0 {
+		s.clusterThreshold = v
+	}
 }
 
 func (s *Store) CreateNode(ctx context.Context, node memory.Node) error {
@@ -83,6 +94,14 @@ func (s *Store) GetNode(ctx context.Context, id string) (memory.Node, error) {
 	}
 
 	return docToNode(doc), nil
+}
+
+func (s *Store) UpdateNode(ctx context.Context, node memory.Node) error {
+	if err := s.collection.Delete(ctx, nil, nil, node.ID); err != nil {
+		return fmt.Errorf("chromem: delete node: %w", err)
+	}
+
+	return s.CreateNode(ctx, node)
 }
 
 func (s *Store) SearchNodes(ctx context.Context, query string, limit int) ([]memory.Node, error) {
@@ -175,6 +194,34 @@ func (s *Store) FindClusters(ctx context.Context, minClusterSize int) ([][]memor
 	return clusters, nil
 }
 
+func (s *Store) LatestedReflections(ctx context.Context) (memory.Node, error) {
+	s.mu.RLock()
+	sourceIDs := make([]string, 0, len(s.edges))
+	for id := range s.edges {
+		sourceIDs = append(sourceIDs, id)
+	}
+	s.mu.RUnlock()
+
+	var best memory.Node
+	found := false
+	for _, id := range sourceIDs {
+		doc, err := s.collection.GetByID(ctx, id)
+		if err != nil {
+			continue
+		}
+		n := docToNode(doc)
+		if n.Type != memory.NodeReflection {
+			continue
+		}
+		if !found || n.CreatedAt.After(best.CreatedAt) {
+			best = n
+			found = true
+		}
+	}
+
+	return best, nil
+}
+
 func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -191,7 +238,8 @@ func (s *Store) saveEdges() error {
 	return os.WriteFile(s.path+".edges.json", raw, 0644)
 }
 
-func (s *Store) loadEdges() error {	raw, err := os.ReadFile(s.path + ".edges.json")
+func (s *Store) loadEdges() error {
+	raw, err := os.ReadFile(s.path + ".edges.json")
 	if err != nil {
 		return nil
 	}

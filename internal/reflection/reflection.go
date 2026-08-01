@@ -23,12 +23,16 @@ type Reflector struct {
 }
 
 type Config struct {
-	Interval int
+	Interval   int
+	MaxHistory int
 }
 
 func New(llm llm.Provider, p proposals.System, mem memory.Store, cfg Config) *Reflector {
 	if cfg.Interval == 0 {
 		cfg.Interval = 5
+	}
+	if cfg.MaxHistory == 0 {
+		cfg.MaxHistory = 20
 	}
 	return &Reflector{
 		llm:       llm,
@@ -42,16 +46,14 @@ func (r *Reflector) Interval() int {
 	return r.config.Interval
 }
 
-const maxHistory = 20
-
 func (r *Reflector) Analyze(ctx context.Context, userID string) error {
 	history := r.memory.History(userID)
 	if len(history) == 0 {
 		return nil
 	}
 
-	if len(history) > maxHistory {
-		history = history[len(history)-maxHistory:]
+	if len(history) > r.config.MaxHistory {
+		history = history[len(history)-r.config.MaxHistory:]
 	}
 
 	msgs := []conversation.Message{

@@ -40,9 +40,19 @@
   ],
 
   "memory_usage_rules": {
-    "recency_weight": 0.3,
-    "semantic_relevance_threshold": 0.65,
-    "max_context_memories": 15,
-    "reflection_interval": 5
+    "recency_weight": 0.1,
+    "semantic_relevance_threshold": 0.45,
+    "max_context_memories": 25,
+    "reflection_interval": 5,
+    "reflection_history": 80,
+    "cluster_threshold": 0.6,
+    "min_cluster_size": 3,
+    "interest_ttl_minutes": 10
+  },
+
+  "llm": {
+    "chat_timeout_seconds": 60,
+    "reflection_timeout_seconds": 120,
+    "embedder_timeout_seconds": 60
   }
 }
