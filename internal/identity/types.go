@@ -1,14 +1,14 @@
 package identity
 
 type IdentityCore struct {
-	Name                     string     `json:"name"`
-	Description              string     `json:"description"`
-	Values                   []string   `json:"values"`
-	Purpose                  string     `json:"purpose"`
-	FoundationalMemories     []string   `json:"foundational_memories"`
-	ConversationalPrinciples []string   `json:"conversational_principles"`
+	Name                     string      `json:"name"`
+	Description              string      `json:"description"`
+	Values                   []string    `json:"values"`
+	Purpose                  string      `json:"purpose"`
+	FoundationalMemories     []string    `json:"foundational_memories"`
+	ConversationalPrinciples []string    `json:"conversational_principles"`
 	MemoryUsageRules         MemoryRules `json:"memory_usage_rules"`
-	LLM                      LLMConfig  `json:"llm"`
+	LLM                      LLMConfig   `json:"llm"`
 }
 
 type MemoryRules struct {
@@ -23,7 +23,8 @@ type MemoryRules struct {
 }
 
 type LLMConfig struct {
-	ChatTimeoutSeconds       int `json:"chat_timeout_seconds"`
-	ReflectionTimeoutSeconds int `json:"reflection_timeout_seconds"`
-	EmbedderTimeoutSeconds   int `json:"embedder_timeout_seconds"`
+	ChatTimeoutSeconds          int `json:"chat_timeout_seconds"`
+	ReflectionTimeoutSeconds    int `json:"reflection_timeout_seconds"`
+	EmbedderTimeoutSeconds      int `json:"embedder_timeout_seconds"`
+	TranscriptionTimeoutSeconds int `json:"transcription_timeout_seconds"`
 }

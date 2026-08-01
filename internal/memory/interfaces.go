@@ -17,6 +17,7 @@ type MemoryStore interface {
 	SearchNodes(ctx context.Context, query string, limit int) ([]Node, error)
 	CreateEdge(ctx context.Context, edge Edge) error
 	GetEdges(ctx context.Context, nodeID string) ([]Edge, error)
+	GetNeighbors(ctx context.Context, nodeID string, limit int) ([]Node, error)
 	FindClusters(ctx context.Context, minClusterSize int) ([][]Node, error)
 	LatestedReflections(ctx context.Context) (Node, error)
 	Close() error

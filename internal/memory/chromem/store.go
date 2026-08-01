@@ -151,6 +151,44 @@ func (s *Store) GetEdges(ctx context.Context, nodeID string) ([]memory.Edge, err
 	return result, nil
 }
 
+func (s *Store) GetNeighbors(ctx context.Context, nodeID string, limit int) ([]memory.Node, error) {
+	s.mu.RLock()
+	seen := make(map[string]bool)
+	ids := make([]string, 0, 8)
+	for _, edges := range s.edges {
+		for _, e := range edges {
+			var other string
+			if e.SourceID == nodeID {
+				other = e.TargetID
+			} else if e.TargetID == nodeID {
+				other = e.SourceID
+			}
+			if other == "" || seen[other] {
+				continue
+			}
+			seen[other] = true
+			ids = append(ids, other)
+		}
+	}
+	s.mu.RUnlock()
+
+	if limit <= 0 || limit > len(ids) {
+		limit = len(ids)
+	}
+	ids = ids[:limit]
+
+	nodes := make([]memory.Node, 0, len(ids))
+	for _, id := range ids {
+		node, err := s.GetNode(ctx, id)
+		if err != nil {
+			continue
+		}
+		nodes = append(nodes, node)
+	}
+
+	return nodes, nil
+}
+
 func (s *Store) FindClusters(ctx context.Context, minClusterSize int) ([][]memory.Node, error) {
 	count := s.collection.Count()
 	if count == 0 {

@@ -1,4 +1,4 @@
-package nvidia
+package openai
 
 import (
 	"bytes"
@@ -15,20 +15,38 @@ import (
 
 var _ llm.Provider = (*Client)(nil)
 
+type baseURLProvider func(ctx context.Context) (string, error)
+
 type Client struct {
-	apiKey  string
-	model   string
-	baseURL string
-	http    *http.Client
+	model        string
+	baseURL      string
+	baseProvider baseURLProvider
+	http         *http.Client
 }
 
-func New(apiKey, model string, timeout time.Duration) *Client {
+func New(model string, timeout time.Duration) *Client {
 	return &Client{
-		apiKey:  apiKey,
-		model:   model,
-		baseURL: "https://integrate.api.nvidia.com/v1",
-		http:    &http.Client{Timeout: timeout * time.Second},
+		model: model,
+		http:  &http.Client{Timeout: timeout},
 	}
+}
+
+func (c *Client) SetBaseURL(baseURL string) {
+	c.baseURL = baseURL
+}
+
+func (c *Client) SetBaseURLProvider(fn func(ctx context.Context) (string, error)) {
+	c.baseProvider = fn
+}
+
+func (c *Client) resolveBaseURL(ctx context.Context) (string, error) {
+	if c.baseProvider != nil {
+		return c.baseProvider(ctx)
+	}
+	if c.baseURL != "" {
+		return c.baseURL, nil
+	}
+	return "", fmt.Errorf("openai: no base URL configured")
 }
 
 func (c *Client) Chat(ctx context.Context, messages []conversation.Message) (string, error) {
@@ -37,9 +55,14 @@ func (c *Client) Chat(ctx context.Context, messages []conversation.Message) (str
 		Content string `json:"content"`
 	}
 
-	var nvMessages []chatMessage
+	baseURL, err := c.resolveBaseURL(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	reqMessages := make([]chatMessage, 0, len(messages))
 	for _, m := range messages {
-		nvMessages = append(nvMessages, chatMessage{
+		reqMessages = append(reqMessages, chatMessage{
 			Role:    string(m.Role),
 			Content: m.Content,
 		})
@@ -47,7 +70,7 @@ func (c *Client) Chat(ctx context.Context, messages []conversation.Message) (str
 
 	body := map[string]any{
 		"model":       c.model,
-		"messages":    nvMessages,
+		"messages":    reqMessages,
 		"temperature": 1,
 		"top_p":       0.8,
 		"max_tokens":  512,
@@ -55,13 +78,12 @@ func (c *Client) Chat(ctx context.Context, messages []conversation.Message) (str
 	}
 	jsonBody, _ := json.Marshal(body)
 
-	req, _ := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonBody))
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req, _ := http.NewRequestWithContext(ctx, "POST", baseURL+"/chat/completions", bytes.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("nvidia: %w", err)
+		return "", fmt.Errorf("openai: %w", err)
 	}
 
 	defer resp.Body.Close()
@@ -77,10 +99,10 @@ func (c *Client) Chat(ctx context.Context, messages []conversation.Message) (str
 	bodyBytes, _ := io.ReadAll(resp.Body)
 
 	if err := json.Unmarshal(bodyBytes, &result); err != nil {
-		return "", fmt.Errorf("nvidia: decode: %w", err)
+		return "", fmt.Errorf("openai: decode: %w", err)
 	}
 	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("nvidia: no choices in response")
+		return "", fmt.Errorf("openai: no choices in response")
 	}
 
 	return result.Choices[0].Message.Content, nil

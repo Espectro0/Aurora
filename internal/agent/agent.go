@@ -109,6 +109,18 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 
 				log.Printf("[agent] memories injected: %d (max score %.2f)", len(kept), kept[0].Similarity)
 			}
+
+			if related := a.graphNeighbors(ctx, kept); len(related) > 0 {
+				var b strings.Builder
+				b.WriteString("Recuerdos relacionados en tu red de conocimiento:\n")
+				b.WriteString("Conectan lo que el usuario menciona con otras personas, conceptos o eventos que conoces.\n\n")
+				for _, n := range related {
+					b.WriteString(fmt.Sprintf("- %s\n", n.Content))
+				}
+				history = append(history, conversation.NewMessage(conversation.System, b.String()))
+
+				log.Printf("[agent] graph neighbors injected: %d", len(related))
+			}
 		}
 	}
 
@@ -158,8 +170,65 @@ func (a *Agent) Wait() {
 	a.reflectWG.Wait()
 }
 
-func (a *Agent) searchMemories(ctx context.Context, query string, limit int) ([]memory.Node, error) {
-	timeout := a.identity.Get().LLM.EmbedderTimeoutSeconds + 5
+const maxGraphNeighbors = 6
+
+func (a *Agent) graphNeighbors(ctx context.Context, seeds []memory.Node) []memory.Node {
+	if a.memStore == nil || len(seeds) == 0 {
+		return nil
+	}
+
+	injected := make(map[string]bool, len(seeds))
+	for _, n := range seeds {
+		injected[n.ID] = true
+	}
+
+	var entities []memory.Node
+	var reflections []memory.Node
+	seen := make(map[string]bool)
+
+	collect := func(id string) {
+		if id == "" || seen[id] || injected[id] {
+			return
+		}
+		node, err := a.memStore.GetNode(ctx, id)
+		if err != nil {
+			return
+		}
+		seen[id] = true
+		switch node.Type {
+		case memory.NodePerson, memory.NodeConcept, memory.NodeEvent:
+			entities = append(entities, node)
+		default:
+			reflections = append(reflections, node)
+		}
+	}
+
+	for _, seed := range seeds {
+		neighbors, err := a.memStore.GetNeighbors(ctx, seed.ID, 12)
+		if err != nil {
+			log.Printf("[agent] graph neighbors error: %v", err)
+			continue
+		}
+		for _, nb := range neighbors {
+			collect(nb.ID)
+		}
+		if len(entities)+len(reflections) >= maxGraphNeighbors {
+			break
+		}
+	}
+
+	result := make([]memory.Node, 0, maxGraphNeighbors)
+	result = append(result, entities...)
+	if len(result) < maxGraphNeighbors {
+		result = append(result, reflections...)
+	}
+	if len(result) > maxGraphNeighbors {
+		result = result[:maxGraphNeighbors]
+	}
+	return result
+}
+
+func (a *Agent) searchMemories(ctx context.Context, query string, limit int) ([]memory.Node, error) {	timeout := a.identity.Get().LLM.EmbedderTimeoutSeconds + 5
 	log.Printf("[agent] Searching in Memories...")
 	if timeout <= 0 {
 		timeout = 35

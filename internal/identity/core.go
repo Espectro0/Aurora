@@ -80,9 +80,10 @@ func Default() *IdentityCore {
 			InterestTTLMinutes:         10,
 		},
 		LLM: LLMConfig{
-			ChatTimeoutSeconds:       60,
-			ReflectionTimeoutSeconds: 120,
-			EmbedderTimeoutSeconds:   30,
+			ChatTimeoutSeconds:          60,
+			ReflectionTimeoutSeconds:    120,
+			EmbedderTimeoutSeconds:      30,
+			TranscriptionTimeoutSeconds: 120,
 		},
 	}
 }
@@ -117,5 +118,8 @@ func (i *IdentityCore) applyDefaults() {
 	}
 	if i.LLM.EmbedderTimeoutSeconds == 0 {
 		i.LLM.EmbedderTimeoutSeconds = 30
+	}
+	if i.LLM.TranscriptionTimeoutSeconds == 0 {
+		i.LLM.TranscriptionTimeoutSeconds = 120
 	}
 }

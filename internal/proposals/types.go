@@ -22,6 +22,13 @@ type JournalProp struct {
 
 type MemoryProp struct {
 	Nodes []NodeProp `json:"nodes"`
+	Edges []EdgeProp `json:"edges,omitempty"`
+}
+
+type EdgeProp struct {
+	Source string `json:"source"` // label del nodo origen
+	Target string `json:"target"` // label del nodo destino
+	Type   string `json:"type"`
 }
 
 type NodeProp struct {

@@ -11,13 +11,15 @@ import (
 	"github.com/Espectro0/AuroraProject/config"
 	"github.com/Espectro0/AuroraProject/internal/agent"
 	"github.com/Espectro0/AuroraProject/internal/discord"
-	embednvidia "github.com/Espectro0/AuroraProject/internal/embedder/nvidia"
+	embedopenai "github.com/Espectro0/AuroraProject/internal/embedder/openai"
 	"github.com/Espectro0/AuroraProject/internal/identity"
-	llmnvidia "github.com/Espectro0/AuroraProject/internal/llm/nvidia"
+	"github.com/Espectro0/AuroraProject/internal/llm/openai"
+	"github.com/Espectro0/AuroraProject/internal/localai"
 	"github.com/Espectro0/AuroraProject/internal/memory"
 	"github.com/Espectro0/AuroraProject/internal/memory/chromem"
 	"github.com/Espectro0/AuroraProject/internal/proposals"
 	"github.com/Espectro0/AuroraProject/internal/reflection"
+	"github.com/Espectro0/AuroraProject/internal/transcription/whispercpp"
 )
 
 func main() {
@@ -29,15 +31,29 @@ func main() {
 		return
 	}
 
-	idCore := identity.New("aurora.json")
+	idCore := identity.New("data/aurora.json")
 	id := idCore.Get()
 	rules := id.MemoryUsageRules
 
-	llmClient := llmnvidia.New(cfg.NvidiaApiKey, cfg.NvidiaModel, time.Duration(id.LLM.ChatTimeoutSeconds))
-	reflectLLM := llmnvidia.New(cfg.NvidiaApiKey, cfg.ReflectionModel, time.Duration(id.LLM.ReflectionTimeoutSeconds))
+	manager := localai.New(localai.Options{
+		BinPath:     cfg.LlamaBinPath,
+		ChatModel:   cfg.LlamaChatModel,
+		EmbedModel:  cfg.LlamaEmbedModel,
+		ChatPort:    cfg.LlamaPortChat,
+		EmbedPort:   cfg.LlamaPortEmbed,
+		Context:     cfg.LlamaContext,
+		IdleTimeout: time.Duration(cfg.LlamaIdleMin) * time.Minute,
+	})
+	defer manager.Close()
 
-	emb := embednvidia.New(cfg.NvidiaApiKey, cfg.EmbedderModel, cfg.EmbedderBaseURL, time.Duration(id.LLM.EmbedderTimeoutSeconds))
-	memStore, err := chromem.NewStore("aurora", emb)
+	llmClient := openai.New("aurora-chat", time.Duration(id.LLM.ChatTimeoutSeconds)*time.Second)
+	llmClient.SetBaseURLProvider(manager.EnsureChat)
+	reflectLLM := openai.New("aurora-reflect", time.Duration(id.LLM.ReflectionTimeoutSeconds)*time.Second)
+	reflectLLM.SetBaseURLProvider(manager.EnsureChat)
+
+	emb := embedopenai.New("aurora-embed", time.Duration(id.LLM.EmbedderTimeoutSeconds)*time.Second)
+	emb.SetBaseURLProvider(manager.EnsureEmbed)
+	memStore, err := chromem.NewStore("data/aurora", emb)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -46,21 +62,22 @@ func main() {
 
 	mem := memory.NewInMemory()
 	threshold := rules.SemanticRelevanceThreshold
-	propSystem := proposals.NewMemoryProcessor(memStore, "journal.md", threshold)
+	propSystem := proposals.NewMemoryProcessor(memStore, "data/journal.md", threshold)
 	reflector := reflection.New(reflectLLM, propSystem, mem, reflection.Config{
 		Interval:   rules.ReflectionInterval,
 		MaxHistory: rules.ReflectionHistory,
 	})
 	a := agent.NewAgent(llmClient, idCore, mem, memStore, reflector)
-	bot := discord.NewBot(cfg.DiscordToken, a)
+	transProvider := whispercpp.New(cfg.SttBinPath, cfg.SttModelPath, cfg.SttLanguage, cfg.FfmpegBinPath)
+	bot := discord.NewBot(cfg.DiscordToken, a, transProvider, time.Duration(id.LLM.TranscriptionTimeoutSeconds)*time.Second)
 
-	log.Println("Aurora Iniciada...")
+	log.Println("Aurora is running...")
 	if err := bot.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 
 	<-ctx.Done()
-	log.Println("Aurora detenida")
+	log.Println("Aurora's shutting down...")
 	a.Wait()
 
 }

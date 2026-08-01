@@ -36,6 +36,22 @@ Memorias:
   - "concept"
   - "event"
 
+Aristas:
+- Opcional, máximo 6 aristas.
+- Describen relaciones directas y explícitas entre las entidades de "nodes".
+- Los campos "source" y "target" deben referirse EXACTAMENTE a los "label" presentes en "nodes".
+- No repitas una relación que ya exista en el contexto proporcionado.
+- No inventes relaciones que la conversación no respalde.
+- "source" y "target" no pueden ser iguales.
+- El campo "type" solo puede ser:
+  - "mentions"      (una entidad menciona a otra)
+  - "relates"       (entidades relacionadas temáticamente)
+  - "prefers"       (una persona prefiere a otra entidad)
+  - "leads_to"      (una entidad conduce a otra)
+  - "sentiment"     (una entidad tiene una carga emocional hacia otra)
+  - "participates"  (una persona participa en un evento)
+- Si no hay relaciones claras, omite el campo "edges".
+
 Journal:
 - Escribe una reflexión breve en primera persona.
 - Resume lo aprendido durante la conversación.
@@ -56,6 +72,9 @@ Devuelve exactamente esta estructura:
       {"type": "person", "label": "...", "content": "..."},
       {"type": "concept", "label": "...", "content": "..."},
       {"type": "event", "label": "...", "content": "..."}
+    ],
+    "edges": [
+      {"source": "...", "target": "...", "type": "relates"}
     ]
   }
 }`

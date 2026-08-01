@@ -1,4 +1,4 @@
-package nvidia
+package openai
 
 import (
 	"bytes"
@@ -10,40 +10,59 @@ import (
 	"time"
 )
 
+type baseURLProvider func(ctx context.Context) (string, error)
+
 type Embedder struct {
-	apiKey  string
-	model   string
-	baseURL string
-	http    *http.Client
+	model        string
+	baseURL      string
+	baseProvider baseURLProvider
+	http         *http.Client
 }
 
-func New(apiKey, model, baseURL string, timeout time.Duration) *Embedder {
+func New(model string, timeout time.Duration) *Embedder {
 	return &Embedder{
-		apiKey:  apiKey,
-		model:   model,
-		baseURL: baseURL,
-		http:    &http.Client{Timeout: timeout * time.Second},
+		model: model,
+		http:  &http.Client{Timeout: timeout},
 	}
 }
 
+func (e *Embedder) SetBaseURL(baseURL string) {
+	e.baseURL = baseURL
+}
+
+func (e *Embedder) SetBaseURLProvider(fn func(ctx context.Context) (string, error)) {
+	e.baseProvider = fn
+}
+
+func (e *Embedder) resolveBaseURL(ctx context.Context) (string, error) {
+	if e.baseProvider != nil {
+		return e.baseProvider(ctx)
+	}
+	if e.baseURL != "" {
+		return e.baseURL, nil
+	}
+	return "", fmt.Errorf("openai-embed: no base URL configured")
+}
+
 func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	baseURL, err := e.resolveBaseURL(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	body := map[string]any{
-		"input":           []string{text},
-		"model":           e.model,
-		"input_type":      "query",
-		"encoding_format": "float",
-		"truncate":        "NONE",
+		"input": []string{text},
+		"model": e.model,
 	}
 
 	jsonBody, _ := json.Marshal(body)
 
-	req, _ := http.NewRequestWithContext(ctx, "POST", e.baseURL+"/embeddings", bytes.NewReader(jsonBody))
-	req.Header.Set("Authorization", "Bearer "+e.apiKey)
+	req, _ := http.NewRequestWithContext(ctx, "POST", baseURL+"/embeddings", bytes.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := e.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("nvidia-embed: %w", err)
+		return nil, fmt.Errorf("openai-embed: %w", err)
 	}
 
 	defer resp.Body.Close()
@@ -56,11 +75,11 @@ func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	if err := json.Unmarshal(bodyBytes, &result); err != nil {
-		return nil, fmt.Errorf("nvidia-embed: decode: %w", err)
+		return nil, fmt.Errorf("openai-embed: decode: %w", err)
 	}
 
 	if len(result.Data) == 0 {
-		return nil, fmt.Errorf("nvidia-embed: no data in response")
+		return nil, fmt.Errorf("openai-embed: no data in response")
 	}
 
 	return float64To32(result.Data[0].Embedding), nil

@@ -12,8 +12,9 @@ import (
 	"time"
 
 	"github.com/Espectro0/AuroraProject/config"
-	embednvidia "github.com/Espectro0/AuroraProject/internal/embedder/nvidia"
+	embedopenai "github.com/Espectro0/AuroraProject/internal/embedder/openai"
 	"github.com/Espectro0/AuroraProject/internal/identity"
+	"github.com/Espectro0/AuroraProject/internal/localai"
 	"github.com/Espectro0/AuroraProject/internal/memory"
 	"github.com/Espectro0/AuroraProject/internal/memory/chromem"
 )
@@ -24,12 +25,23 @@ func main() {
 		log.Fatal(err)
 	}
 
-	idCore := identity.New("aurora.json")
+	idCore := identity.New("data/aurora.json")
 	id := idCore.Get()
 	rules := id.MemoryUsageRules
 
-	emb := embednvidia.New(cfg.NvidiaApiKey, cfg.EmbedderModel, cfg.EmbedderBaseURL, time.Duration(id.LLM.EmbedderTimeoutSeconds))
-	store, err := chromem.NewStore("aurora", emb)
+	manager := localai.New(localai.Options{
+		BinPath:     cfg.LlamaBinPath,
+		EmbedModel:  cfg.LlamaEmbedModel,
+		ChatPort:    cfg.LlamaPortChat,
+		EmbedPort:   cfg.LlamaPortEmbed,
+		Context:     cfg.LlamaContext,
+		IdleTimeout: time.Duration(cfg.LlamaIdleMin) * time.Minute,
+	})
+	defer manager.Close()
+
+	emb := embedopenai.New("aurora-embed", time.Duration(id.LLM.EmbedderTimeoutSeconds)*time.Second)
+	emb.SetBaseURLProvider(manager.EnsureEmbed)
+	store, err := chromem.NewStore("data/aurora", emb)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -139,7 +151,7 @@ func displayName(id string, byID map[string]memory.Node) string {
 }
 
 func loadEdges() map[string][]memory.Edge {
-	raw, err := os.ReadFile("aurora.edges.json")
+	raw, err := os.ReadFile("data/aurora.edges.json")
 	if err != nil {
 		return nil
 	}
@@ -153,9 +165,9 @@ func loadEdges() map[string][]memory.Edge {
 }
 
 func journalStatus() {
-	fi, err := os.Stat("journal.md")
+	fi, err := os.Stat("data/journal.md")
 	if err != nil {
-		fmt.Println("\nJOURNAL (journal.md) — no existe")
+		fmt.Println("\nJOURNAL (data/journal.md) — no existe")
 		return
 	}
 
@@ -171,7 +183,7 @@ func journalStatus() {
 		start = 0
 	}
 
-	fmt.Printf("\nJOURNAL (journal.md) — %d bytes, ultimas entradas:\n", fi.Size())
+	fmt.Printf("\nJOURNAL (data/journal.md) — %d bytes, ultimas entradas:\n", fi.Size())
 	for _, l := range lines[start:] {
 		fmt.Printf("  %s\n", l)
 	}

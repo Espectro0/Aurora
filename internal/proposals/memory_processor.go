@@ -56,11 +56,14 @@ func (p *MemoryProcessor) Process(ctx context.Context, prop Proposal) error {
 		}
 	}
 
+	idByLabel := make(map[string]string, len(dedup))
 	for _, np := range dedup {
 		target, err := p.ensureNode(ctx, np, prop.Timestamp)
 		if err != nil {
 			return err
 		}
+
+		idByLabel[normalizeLabel(np.Type, np.Label)] = target.ID
 
 		if err := p.store.CreateEdge(ctx, memory.Edge{
 			ID:        uuid.New().String(),
@@ -74,7 +77,75 @@ func (p *MemoryProcessor) Process(ctx context.Context, prop Proposal) error {
 		}
 	}
 
+	for _, ep := range prop.Memory.Edges {
+		if err := p.createEntityEdge(ctx, ep, idByLabel, prop.Timestamp); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+func (p *MemoryProcessor) createEntityEdge(ctx context.Context, ep EdgeProp, idByLabel map[string]string, ts time.Time) error {
+	if ep.Source == "" || ep.Target == "" || ep.Source == ep.Target {
+		return nil
+	}
+
+	edgeType := memory.EdgeType(ep.Type)
+	if !validEdgeType(edgeType) {
+		log.Printf("[memory] skipping edge with unknown type %q", ep.Type)
+		return nil
+	}
+
+	sourceID, ok := resolveEdgeLabel(ep.Source, idByLabel)
+	if !ok {
+		log.Printf("[memory] skipping edge, source %q not in nodes", ep.Source)
+		return nil
+	}
+	targetID, ok := resolveEdgeLabel(ep.Target, idByLabel)
+	if !ok {
+		log.Printf("[memory] skipping edge, target %q not in nodes", ep.Target)
+		return nil
+	}
+	if sourceID == targetID {
+		return nil
+	}
+
+	if err := p.store.CreateEdge(ctx, memory.Edge{
+		ID:        uuid.New().String(),
+		SourceID:  sourceID,
+		TargetID:  targetID,
+		Type:      edgeType,
+		Weight:    1,
+		CreatedAt: ts,
+	}); err != nil {
+		return fmt.Errorf("memory: edge: %w", err)
+	}
+
+	log.Printf("[memory] created %s edge %s -> %s", ep.Type, ep.Source, ep.Target)
+	return nil
+}
+
+func validEdgeType(t memory.EdgeType) bool {
+	switch t {
+	case memory.EdgeParticipates, memory.EdgeMentions, memory.EdgeRelates,
+		memory.EdgePrefers, memory.EdgeReflectsOn, memory.EdgeLeadsTo, memory.EdgeSentiment:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeEdgeLabel(label string) string {
+	return strings.ToLower(strings.TrimSpace(label))
+}
+
+func resolveEdgeLabel(label string, idByLabel map[string]string) (string, bool) {
+	if id, ok := idByLabel[strings.TrimSpace(label)]; ok {
+		return id, true
+	}
+	id, ok := idByLabel[normalizeEdgeLabel(label)]
+	return id, ok
 }
 
 func (p *MemoryProcessor) ensureNode(ctx context.Context, np NodeProp, ts time.Time) (memory.Node, error) {
