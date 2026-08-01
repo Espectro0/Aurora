@@ -43,5 +43,10 @@ func (b *Bot) Run(ctx context.Context) error {
 
 	session.Identify.Intents = discordgo.IntentGuildMessages | discordgo.IntentsMessageContent
 
+	go func() {
+		<-ctx.Done()
+		session.Close()
+	}()
+
 	return session.Open()
 }
