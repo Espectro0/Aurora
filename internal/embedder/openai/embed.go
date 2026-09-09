@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -16,6 +17,7 @@ type Embedder struct {
 	model        string
 	baseURL      string
 	baseProvider baseURLProvider
+	apiKey       string
 	http         *http.Client
 }
 
@@ -32,6 +34,10 @@ func (e *Embedder) SetBaseURL(baseURL string) {
 
 func (e *Embedder) SetBaseURLProvider(fn func(ctx context.Context) (string, error)) {
 	e.baseProvider = fn
+}
+
+func (e *Embedder) SetAPIKey(key string) {
+	e.apiKey = key
 }
 
 func (e *Embedder) resolveBaseURL(ctx context.Context) (string, error) {
@@ -59,6 +65,9 @@ func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
 
 	req, _ := http.NewRequestWithContext(ctx, "POST", baseURL+"/embeddings", bytes.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
+	if e.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+e.apiKey)
+	}
 
 	resp, err := e.http.Do(req)
 	if err != nil {
@@ -71,11 +80,22 @@ func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
 		Data []struct {
 			Embedding []float64 `json:"embedding"`
 		} `json:"data"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("openai-embed: status %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+	}
+
 	if err := json.Unmarshal(bodyBytes, &result); err != nil {
 		return nil, fmt.Errorf("openai-embed: decode: %w", err)
+	}
+	if result.Error != nil {
+		return nil, fmt.Errorf("openai-embed: %s", result.Error.Message)
 	}
 
 	if len(result.Data) == 0 {

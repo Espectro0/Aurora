@@ -11,15 +11,14 @@ import (
 	"github.com/Espectro0/AuroraProject/config"
 	"github.com/Espectro0/AuroraProject/internal/agent"
 	"github.com/Espectro0/AuroraProject/internal/discord"
-	"github.com/Espectro0/AuroraProject/internal/discord/commands"
 	embedopenai "github.com/Espectro0/AuroraProject/internal/embedder/openai"
 	"github.com/Espectro0/AuroraProject/internal/identity"
 	"github.com/Espectro0/AuroraProject/internal/llm/openai"
-	"github.com/Espectro0/AuroraProject/internal/localai"
 	"github.com/Espectro0/AuroraProject/internal/memory"
-	"github.com/Espectro0/AuroraProject/internal/memory/chromem"
+	"github.com/Espectro0/AuroraProject/internal/memory/qdrant"
 	"github.com/Espectro0/AuroraProject/internal/proposals"
 	"github.com/Espectro0/AuroraProject/internal/reflection"
+	"github.com/Espectro0/AuroraProject/internal/telegram"
 	"github.com/Espectro0/AuroraProject/internal/transcription/whispercpp"
 )
 
@@ -36,29 +35,30 @@ func main() {
 	id := idCore.Get()
 	rules := id.MemoryUsageRules
 
-	manager := localai.New(localai.Options{
-		BinPath:     cfg.LlamaBinPath,
-		ChatModel:   cfg.LlamaChatModel,
-		EmbedModel:  cfg.LlamaEmbedModel,
-		CodeModel:   cfg.LlamaCodeModel,
-		ChatPort:    cfg.LlamaPortChat,
-		EmbedPort:   cfg.LlamaPortEmbed,
-		CodePort:    cfg.LlamaPortCode,
-		Context:     cfg.LlamaContext,
-		IdleTimeout: time.Duration(cfg.LlamaIdleMin) * time.Minute,
-	})
-	defer manager.Close()
+	reflectionModel := cfg.OpenRouterReflectionModel
+	if reflectionModel == "" {
+		reflectionModel = cfg.OpenRouterChatModel
+	}
 
-	llmClient := openai.New("aurora-chat", time.Duration(id.LLM.ChatTimeoutSeconds)*time.Second)
+	llmClient := openai.New(cfg.OpenRouterChatModel, time.Duration(id.LLM.ChatTimeoutSeconds)*time.Second)
 	llmClient.SetMaxTokens(2048)
-	llmClient.SetBaseURLProvider(manager.EnsureChat)
-	codeLLM := openai.New("aurora-code", time.Duration(id.LLM.ReflectionTimeoutSeconds)*time.Second)
-	codeLLM.SetMaxTokens(8192)
-	codeLLM.SetBaseURLProvider(manager.EnsureCode)
+	llmClient.SetBaseURL(cfg.OpenRouterBaseURL)
+	llmClient.SetAPIKey(cfg.OpenRouterAPIKey)
 
-	emb := embedopenai.New("aurora-embed", time.Duration(id.LLM.EmbedderTimeoutSeconds)*time.Second)
-	emb.SetBaseURLProvider(manager.EnsureEmbed)
-	memStore, err := chromem.NewStore("data/aurora", emb)
+	codeLLM := openai.New(reflectionModel, time.Duration(id.LLM.ReflectionTimeoutSeconds)*time.Second)
+	codeLLM.SetMaxTokens(8192)
+	codeLLM.SetBaseURL(cfg.OpenRouterBaseURL)
+	codeLLM.SetAPIKey(cfg.OpenRouterAPIKey)
+
+	emb := embedopenai.New(cfg.OpenRouterEmbedModel, time.Duration(id.LLM.EmbedderTimeoutSeconds)*time.Second)
+	emb.SetBaseURL(cfg.OpenRouterBaseURL)
+	emb.SetAPIKey(cfg.OpenRouterAPIKey)
+	memStore, err := qdrant.NewStore(qdrant.Config{
+		BaseURL:    cfg.QdrantURL,
+		APIKey:     cfg.QdrantAPIKey,
+		Collection: cfg.QdrantCollection,
+		EdgesPath:  "data/aurora.edges.json",
+	}, emb)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -74,22 +74,23 @@ func main() {
 	})
 	a := agent.NewAgent(llmClient, idCore, mem, memStore, reflector)
 	transProvider := whispercpp.New(cfg.SttBinPath, cfg.SttModelPath, cfg.SttLanguage, cfg.FfmpegBinPath)
-	cmds := commands.New(commands.Deps{
-		Identity:    idCore,
-		Memory:      memStore,
-		Manager:     manager,
-		Chat:        llmClient,
-		JournalPath: "data/journal.md",
-	})
-	bot := discord.NewBot(cfg.DiscordToken, a, transProvider, time.Duration(id.LLM.TranscriptionTimeoutSeconds)*time.Second, cmds)
+	transcriptionTimeout := time.Duration(id.LLM.TranscriptionTimeoutSeconds) * time.Second
 
-	log.Println("Aurora is running...")
-	if err := bot.Run(ctx); err != nil {
+	discordBot := discord.NewBot(cfg.DiscordToken, a, transProvider, transcriptionTimeout)
+	if err := discordBot.Run(ctx); err != nil {
 		log.Fatal(err)
+	}
+	log.Println("Aurora is running on Discord...")
+
+	if cfg.TelegramToken != "" {
+		telegramBot := telegram.NewBot(cfg.TelegramToken, a, transProvider, transcriptionTimeout)
+		if err := telegramBot.Run(ctx); err != nil {
+			log.Fatal(err)
+		}
+		log.Println("Aurora is running on Telegram...")
 	}
 
 	<-ctx.Done()
 	log.Println("Aurora's shutting down...")
 	a.Wait()
-
 }

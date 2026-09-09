@@ -6,7 +6,6 @@ require (
 	github.com/disgoorg/disgo v0.19.6
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
-	github.com/philippgille/chromem-go v0.7.0
 )
 
 require (

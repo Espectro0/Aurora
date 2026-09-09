@@ -26,8 +26,8 @@ type MemoryProp struct {
 }
 
 type EdgeProp struct {
-	Source string `json:"source"` // label del nodo origen
-	Target string `json:"target"` // label del nodo destino
+	Source string `json:"source"`
+	Target string `json:"target"`
 	Type   string `json:"type"`
 }
 

@@ -10,18 +10,19 @@
   </tr>
 </table>
 
-Aurora is a Discord bot written in Go that lives entirely on your machine. It is not designed to be a traditional chatbot or a specialized assistant. Its goal is to build a coherent identity through experience by remembering conversations, learning from them, and developing a richer understanding of the people it interacts with over time.
+Aurora is a Discord and Telegram bot written in Go that lives entirely on your machine. It is not designed to be a traditional chatbot or a specialized assistant. Its goal is to build a coherent identity through experience by remembering conversations, learning from them, and developing a richer understanding of the people it interacts with over time.
 
 Its identity remains stable, while its knowledge, memories, and interests evolve over time.
 
 ## Features
 
-- **Persistent vector memory** — long-term memories are embedded and stored locally with `chromem-go`, surviving restarts.
+- **Persistent vector memory** — long-term memories are embedded and stored in [Qdrant](https://qdrant.tech), self-hosted via Docker, surviving restarts.
 - **Cognitive graph** — people, concepts, events, and reflections are modeled as nodes and edges (`data/aurora.edges.json`).
 - **Periodic reflection** — after every N messages, Aurora analyzes the conversation, distills a summary, writes to its journal, and consolidates memory nodes.
 - **Emerging interests** — clusters of frequently discussed concepts are detected and injected into the conversation context.
 - **Voice note transcription** — audio attachments are transcribed locally with whisper.cpp (ffmpeg handles Opus/Ogg conversion).
-- **100% local AI** — chat, reflection, and embedding run through llama.cpp servers started on demand, with no external API keys.
+- **Cloud LLM via OpenRouter** — chat, reflection, and embedding all go through OpenRouter, so you can pick any model (free or paid) it offers.
+- **Multi-platform** — the same identity, memory, and conversational agent are reachable from both Discord and Telegram; Telegram is optional and only starts if `TELEGRAM_BOT_TOKEN` is set.
 
 ## Philosophy
 
@@ -32,36 +33,40 @@ Aurora clearly separates four core concepts:
 - **Knowledge**: consolidated relationships between people, concepts, and experiences.
 - **Reasoning**: the language model used to generate responses.
 
-The language model is interchangeable and does not store permanent state. All persistence lives outside the LLM. Aurora talks to its models through the OpenAI-compatible HTTP API exposed by a local `llama-server`, so any OpenAI-compatible endpoint can be swapped in.
+The language model is interchangeable and does not store permanent state. All persistence lives outside the LLM. Aurora talks to its models through OpenRouter's OpenAI-compatible HTTP API, so any OpenAI-compatible endpoint (OpenRouter or otherwise) can be swapped in.
 
 ## How It Works
 
 ```
-Discord message (text or audio)
-        │
-        ▼
-internal/discord/bot.go     ───  text → agent.Reply()
-                              ───  audio → download → whisper.cpp → agent.Reply()
-        │
-        ▼
-internal/agent/agent.go     ───  retrieve relevant long-term memories (vector search)
-        │                      ───  inject latest reflection + emerging interests
-        ▼
-internal/localai/server.go  ───  ensures llama-server is up (chat / embed), /health
-        │
-        ▼
-OpenAI-compatible /chat/completions  →  response back to Discord
-        │
-        ▼
-Reflection every N messages → journal.md + memory node consolidation
+Discord message                           Telegram message
+        │                                         │
+        ▼                                         ▼
+internal/discord/messages.go             internal/telegram/messages.go
+  text → agent.Reply()                     text → agent.Reply()
+  audio → whisper.cpp → agent.Reply()      voice → whisper.cpp → agent.Reply()
+        │                                         │
+        └──────────────────┬──────────────────────┘
+                            ▼
+              internal/agent/agent.go     ───  retrieve relevant long-term memories (vector search)
+                                          ───  inject latest reflection + emerging interests
+                            ▼
+              internal/llm/openai         ───  OpenRouter /chat/completions (OpenAI-compatible API)
+                            │
+                            ▼
+              response back to the originating platform
+                            │
+                            ▼
+              Reflection every N messages → journal.md + memory node consolidation
 ```
 
-The memory subsystem persists to three files under `data/`:
+Both platforms share one `agent.Agent`, one identity, and one long-term memory graph. Short-term conversation history is per-user and per-platform (`discord:<id>` / `telegram:<id>`, so the same numeric ID from different platforms can never collide) — the same person messaging from both Discord and Telegram gets two separate conversation threads, but anything Aurora has learned about them ends up in the same shared long-term memory either way.
+
+The memory subsystem persists to:
 
 - `aurora.json` — identity, values, principles, and memory tuning rules.
-- `aurora.vec/` — embedded vector database.
-- `aurora.edges.json` — the cognitive graph (nodes/edges).
-- `journal.md` — Aurora's evolving diary.
+- Qdrant's own Docker volume (`qdrant_storage`, see `docker-compose.yml`) — the vector database, running as a separate service rather than embedded under `data/`.
+- `data/aurora.edges.json` — the cognitive graph (nodes/edges).
+- `data/journal.md` — Aurora's evolving diary.
 
 ## Technology Stack
 
@@ -69,10 +74,11 @@ The memory subsystem persists to three files under `data/`:
 | --- | --- |
 | Language | Go |
 | Discord | disgo |
-| Vector memory | chromem-go |
-| Cognitive graph | custom node/edge store (chromem + JSON) |
-| LLM (chat & reflection) | llama.cpp `llama-server`, OpenAI-compatible API |
-| Embeddings | llama.cpp `llama-server --embeddings` |
+| Telegram | hand-rolled REST client over the Bot API |
+| Vector memory | Qdrant (Docker) |
+| Cognitive graph | custom node/edge store (in-memory + JSON) |
+| LLM (chat & reflection) | OpenRouter, OpenAI-compatible API |
+| Embeddings | OpenRouter embedding models |
 | Speech-to-text | whisper.cpp `whisper-cli` |
 | Audio conversion | ffmpeg (Opus/Ogg → WAV 16 kHz) |
 
@@ -80,9 +86,11 @@ The memory subsystem persists to three files under `data/`:
 
 - Go 1.26+
 - A Discord Bot
-- Local binaries in `tools/` (gitignored): `llama-server`, `whisper-cli`, `ffmpeg`
-- GGUF model files for chat and embedding (an optional code model is reserved)
-- NVIDIA GPU recommended (CUDA build of llama.cpp); CPU works but is slower
+- A Telegram Bot (optional — via [@BotFather](https://t.me/BotFather))
+- An [OpenRouter](https://openrouter.ai) account and API key
+- Docker (for running Qdrant — see [Running Qdrant](#running-qdrant))
+- Local binaries in `tools/` (gitignored): `whisper-cli`, `ffmpeg`
+- NVIDIA GPU recommended for faster local transcription; CPU works but is slower
 
 ## Setup
 
@@ -95,18 +103,19 @@ The memory subsystem persists to three files under `data/`:
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
 | `DISCORD_TOKEN` | yes | — | Discord bot token |
+| `TELEGRAM_BOT_TOKEN` | no | — | Telegram bot token (from @BotFather) — Telegram integration only starts if this is set |
 | `STT_BIN_PATH` | yes | — | Path to `whisper-cli` |
 | `STT_MODEL_PATH` | yes | — | Path to the whisper GGML model |
 | `STT_LANGUAGE` | no | `es` | Whisper language code |
 | `FFMPEG_BIN_PATH` | no | `tools/ffmpeg/ffmpeg.exe` | Path to ffmpeg |
-| `LLAMA_BIN_PATH` | no | `tools/llama/llama-server.exe` | Path to llama-server |
-| `LLAMA_CHAT_MODEL_PATH` | no | — | Chat GGUF model |
-| `LLAMA_EMBED_MODEL_PATH` | no | — | Embedding GGUF model |
-| `LLAMA_CODE_MODEL_PATH` | no | — | Reserved code GGUF model |
-| `LLAMA_PORT_CHAT` | no | `8080` | Chat/reflection server port |
-| `LLAMA_PORT_EMBED` | no | `8081` | Embedding server port |
-| `LLAMA_CONTEXT` | no | `4096` | Context window size |
-| `LLAMA_IDLE_TIMEOUT_MINUTES` | no | `10` | Minutes of idle before the server stops (`0` = keep alive) |
+| `OPENROUTER_API_KEY` | yes | — | OpenRouter API key |
+| `OPENROUTER_BASE_URL` | no | `https://openrouter.ai/api/v1` | OpenRouter (or compatible) base URL |
+| `OPENROUTER_CHAT_MODEL` | yes | — | Model used for chat replies |
+| `OPENROUTER_EMBED_MODEL` | yes | — | Model used for embeddings |
+| `OPENROUTER_REFLECTION_MODEL` | no | same as `OPENROUTER_CHAT_MODEL` | Model used for periodic reflection |
+| `QDRANT_URL` | no | `http://localhost:6333` | Qdrant base URL |
+| `QDRANT_API_KEY` | no | — | Qdrant API key (only needed for a secured/remote instance) |
+| `QDRANT_COLLECTION` | no | `aurora_memories` | Qdrant collection name |
 | `AURORA_KEEP_WAV` | no | — | Keep temp WAV files for debugging |
 
 ### Identity and memory tuning — `data/aurora.json`
@@ -140,21 +149,26 @@ The memory subsystem persists to three files under `data/`:
 
 The default values are applied when a field is missing or zero.
 
-## Local AI On Demand
+## Running Qdrant
 
-`internal/localai` manages the llama.cpp servers:
+Aurora's long-term memory needs a Qdrant instance reachable at `QDRANT_URL`. The collection is created automatically on first run (no manual setup needed) with the vector size matching your configured `OPENROUTER_EMBED_MODEL`.
 
-- Servers are **started lazily** on the first request and reused afterwards.
-- Chat and reflection share one server (`LLAMA_PORT_CHAT`, default `8080`).
-- Embeddings run on a second server with `--embeddings` (`LLAMA_PORT_EMBED`, default `8081`).
-- Startup waits on the `/health` endpoint before serving requests.
-- Idle servers are stopped after `LLAMA_IDLE_TIMEOUT_MINUTES`; both are killed on shutdown.
+With Docker Compose (recommended — persists across restarts via the `qdrant_storage` volume defined in `docker-compose.yml`):
+
+```
+docker compose up -d
+```
+
+Or a plain `docker run`:
+
+```
+docker run -p 6333:6333 -v qdrant_storage:/qdrant/storage qdrant/qdrant
+```
 
 ## Usage
 
-- **Text chat** — any message in a server channel is processed by the agent and answered in the same channel.
-- **Voice notes / audio** — attachments with an audio content type (`.ogg`, `.opus`, `.mp3`, `.wav`, `.flac`, `.m4a`, `.mp4`, `.aac`) are downloaded, converted, and transcribed before being sent to the agent.
-- **Inspect** — `go run ./cmd/inspect` prints the current nodes, edges, emerging interests, and journal tail.
+- **Text chat** — any message (Discord channel or Telegram chat) is processed by the agent and answered on the same platform.
+- **Voice notes / audio** — Discord attachments with an audio content type (`.ogg`, `.opus`, `.mp3`, `.wav`, `.flac`, `.m4a`, `.mp4`, `.aac`) and Telegram voice/audio messages are downloaded, converted, and transcribed before being sent to the agent.
 
 ## License
 

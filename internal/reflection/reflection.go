@@ -107,9 +107,7 @@ func (r *Reflector) parseResponse(raw string) (proposals.Proposal, error) {
 		return proposals.Proposal{}, fmt.Errorf("Invalid JSON: %w\nraw: %s", err, jsonBlock)
 	}
 
-	if prop.ReflectionID == "" {
-		prop.ReflectionID = uuid.New().String()
-	}
+	prop.ReflectionID = uuid.New().String()
 	prop.Timestamp = time.Now()
 
 	return prop, nil

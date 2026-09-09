@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Espectro0/AuroraProject/internal/conversation"
@@ -21,6 +22,7 @@ type Client struct {
 	model        string
 	baseURL      string
 	baseProvider baseURLProvider
+	apiKey       string
 	maxTokens    int
 	http         *http.Client
 }
@@ -43,6 +45,10 @@ func (c *Client) SetBaseURL(baseURL string) {
 
 func (c *Client) SetBaseURLProvider(fn func(ctx context.Context) (string, error)) {
 	c.baseProvider = fn
+}
+
+func (c *Client) SetAPIKey(key string) {
+	c.apiKey = key
 }
 
 func (c *Client) resolveBaseURL(ctx context.Context) (string, error) {
@@ -86,6 +92,9 @@ func (c *Client) Chat(ctx context.Context, messages []conversation.Message) (str
 
 	req, _ := http.NewRequestWithContext(ctx, "POST", baseURL+"/chat/completions", bytes.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -100,12 +109,22 @@ func (c *Client) Chat(ctx context.Context, messages []conversation.Message) (str
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
 
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("openai: status %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+	}
+
 	if err := json.Unmarshal(bodyBytes, &result); err != nil {
 		return "", fmt.Errorf("openai: decode: %w", err)
+	}
+	if result.Error != nil {
+		return "", fmt.Errorf("openai: %s", result.Error.Message)
 	}
 	if len(result.Choices) == 0 {
 		return "", fmt.Errorf("openai: no choices in response")
