@@ -12,13 +12,16 @@ const (
 	System    Role = "system"
 	User      Role = "user"
 	Assistant Role = "assistant"
+	Tool      Role = "tool"
 )
 
 type Message struct {
-	ID        uuid.UUID
-	Role      Role
-	Content   string
-	CreatedAt time.Time
+	ID         uuid.UUID
+	Role       Role
+	Content    string
+	CreatedAt  time.Time
+	ToolCallID string
+	ToolCalls  []ToolCall
 }
 
 func NewMessage(role Role, content string) Message {

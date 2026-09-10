@@ -18,6 +18,8 @@ import (
 	"github.com/Espectro0/AuroraProject/internal/memory/qdrant"
 	"github.com/Espectro0/AuroraProject/internal/proposals"
 	"github.com/Espectro0/AuroraProject/internal/reflection"
+	"github.com/Espectro0/AuroraProject/internal/skills"
+	"github.com/Espectro0/AuroraProject/internal/skills/clock"
 	"github.com/Espectro0/AuroraProject/internal/telegram"
 	"github.com/Espectro0/AuroraProject/internal/transcription/whispercpp"
 )
@@ -72,7 +74,11 @@ func main() {
 		Interval:   rules.ReflectionInterval,
 		MaxHistory: rules.ReflectionHistory,
 	})
-	a := agent.NewAgent(llmClient, idCore, mem, memStore, reflector)
+
+	skillRegistry := skills.NewRegistry()
+	skillRegistry.Register(clock.New())
+
+	a := agent.NewAgent(llmClient, idCore, mem, memStore, reflector, skillRegistry)
 	transProvider := whispercpp.New(cfg.SttBinPath, cfg.SttModelPath, cfg.SttLanguage, cfg.FfmpegBinPath)
 	transcriptionTimeout := time.Duration(id.LLM.TranscriptionTimeoutSeconds) * time.Second
 

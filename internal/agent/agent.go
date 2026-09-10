@@ -16,6 +16,7 @@ import (
 	"github.com/Espectro0/AuroraProject/internal/llm"
 	"github.com/Espectro0/AuroraProject/internal/memory"
 	"github.com/Espectro0/AuroraProject/internal/reflection"
+	"github.com/Espectro0/AuroraProject/internal/skills"
 )
 
 type Agent struct {
@@ -24,6 +25,7 @@ type Agent struct {
 	memory    memory.Store
 	memStore  memory.MemoryStore
 	reflector *reflection.Reflector
+	skills    *skills.Registry
 	msgCount  map[string]int
 
 	reflectMu sync.Mutex
@@ -38,13 +40,14 @@ type Agent struct {
 	lastReflectionAt    time.Time
 }
 
-func NewAgent(llm llm.Provider, id *identity.Core, memory memory.Store, memStore memory.MemoryStore, reflector *reflection.Reflector) *Agent {
+func NewAgent(llm llm.Provider, id *identity.Core, memory memory.Store, memStore memory.MemoryStore, reflector *reflection.Reflector, skillRegistry *skills.Registry) *Agent {
 	return &Agent{
 		llm:       llm,
 		identity:  id,
 		memory:    memory,
 		memStore:  memStore,
 		reflector: reflector,
+		skills:    skillRegistry,
 		msgCount:  make(map[string]int),
 	}
 }
@@ -139,7 +142,7 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 		}
 	}
 
-	response, err := a.llm.Chat(ctx, history)
+	response, err := a.runWithTools(ctx, history)
 	if err != nil {
 		return "", err
 	}
@@ -164,6 +167,52 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 	}
 
 	return response, nil
+}
+
+const maxToolIterations = 4
+
+func (a *Agent) runWithTools(ctx context.Context, history []conversation.Message) (string, error) {
+	var tools []llm.ToolDefinition
+	if a.skills != nil {
+		tools = a.skills.Definitions()
+	}
+
+	for i := 0; i < maxToolIterations; i++ {
+		result, err := a.llm.ChatWithTools(ctx, history, tools)
+		if err != nil {
+			return "", err
+		}
+
+		if len(result.ToolCalls) == 0 {
+			return result.Content, nil
+		}
+
+		history = append(history, conversation.NewAssistantToolCallMessage(result.ToolCalls))
+
+		for _, call := range result.ToolCalls {
+			log.Printf("[agent] tool call: %s(%s)", call.Name, call.Arguments)
+
+			var output string
+			if a.skills != nil {
+				output, err = a.skills.Execute(ctx, call.Name, call.Arguments)
+			} else {
+				err = fmt.Errorf("no hay skills registradas")
+			}
+			if err != nil {
+				log.Printf("[agent] tool error: %v", err)
+				output = fmt.Sprintf(`{"error": %q}`, err.Error())
+			}
+
+			history = append(history, conversation.NewToolResultMessage(call.ID, output))
+		}
+	}
+
+	log.Printf("[agent] max tool iterations reached, forcing final answer")
+	final, err := a.llm.ChatWithTools(ctx, history, nil)
+	if err != nil {
+		return "", err
+	}
+	return final.Content, nil
 }
 
 func (a *Agent) Wait() {
@@ -228,7 +277,8 @@ func (a *Agent) graphNeighbors(ctx context.Context, seeds []memory.Node) []memor
 	return result
 }
 
-func (a *Agent) searchMemories(ctx context.Context, query string, limit int) ([]memory.Node, error) {	timeout := a.identity.Get().LLM.EmbedderTimeoutSeconds + 5
+func (a *Agent) searchMemories(ctx context.Context, query string, limit int) ([]memory.Node, error) {
+	timeout := a.identity.Get().LLM.EmbedderTimeoutSeconds + 5
 	log.Printf("[agent] Searching in Memories...")
 	if timeout <= 0 {
 		timeout = 35
