@@ -14,6 +14,9 @@ Aurora is a Discord and Telegram bot written in Go that lives entirely on your m
 
 Its identity remains stable, while its knowledge, memories, and interests evolve over time.
 
+> Pull requests are welcome!
+>  — new skills, bug fixes, or general improvements.
+
 ## Features
 
 - **Persistent vector memory** — long-term memories are embedded and stored in [Qdrant](https://qdrant.tech), self-hosted via Docker, surviving restarts.
@@ -22,6 +25,7 @@ Its identity remains stable, while its knowledge, memories, and interests evolve
 - **Emerging interests** — clusters of frequently discussed concepts are detected and injected into the conversation context.
 - **Voice note transcription** — audio attachments are transcribed locally with whisper.cpp (ffmpeg handles Opus/Ogg conversion).
 - **Cloud LLM via OpenRouter** — chat, reflection, and embedding all go through OpenRouter, so you can pick any model (free or paid) it offers.
+- **Skills (tool calling)** — Aurora can invoke small, discrete capabilities mid-conversation via OpenAI-compatible function calling (e.g. checking the current date/time), instead of relying only on what it already knows. New skills are added by implementing a small interface and registering them at startup.
 - **Multi-platform** — the same identity, memory, and conversational agent are reachable from both Discord and Telegram; Telegram is optional and only starts if `TELEGRAM_BOT_TOKEN` is set.
 
 ## Philosophy
@@ -33,7 +37,7 @@ Aurora clearly separates four core concepts:
 - **Knowledge**: consolidated relationships between people, concepts, and experiences.
 - **Reasoning**: the language model used to generate responses.
 
-The language model is interchangeable and does not store permanent state. All persistence lives outside the LLM. Aurora talks to its models through OpenRouter's OpenAI-compatible HTTP API, so any OpenAI-compatible endpoint (OpenRouter or otherwise) can be swapped in.
+On top of these four, Aurora has **Skills** — small, stateless capabilities it can choose to invoke mid-conversation instead of relying only on memory or the model's own knowledge. Skills are swappable the same way the LLM and embedder are.
 
 ## How It Works
 
@@ -50,13 +54,16 @@ internal/discord/messages.go             internal/telegram/messages.go
               internal/agent/agent.go     ───  retrieve relevant long-term memories (vector search)
                                           ───  inject latest reflection + emerging interests
                             ▼
-              internal/llm/openai         ───  OpenRouter /chat/completions (OpenAI-compatible API)
+              internal/llm/openai         ───  OpenRouter /chat/completions (tool calling)
                             │
+                            ▼
+                 needs a skill? ── yes ──▶ internal/skills (Registry.Execute)
+                            │                        │
+                            no                result fed back to the LLM
+                            │                        │
+                            ◀────────────────────────┘
                             ▼
               response back to the originating platform
-                            │
-                            ▼
-              Reflection every N messages → journal.md + memory node consolidation
 ```
 
 Both platforms share one `agent.Agent`, one identity, and one long-term memory graph. Short-term conversation history is per-user and per-platform (`discord:<id>` / `telegram:<id>`, so the same numeric ID from different platforms can never collide) — the same person messaging from both Discord and Telegram gets two separate conversation threads, but anything Aurora has learned about them ends up in the same shared long-term memory either way.
@@ -68,6 +75,12 @@ The memory subsystem persists to:
 - `data/aurora.edges.json` — the cognitive graph (nodes/edges).
 - `data/journal.md` — Aurora's evolving diary.
 
+## Skills
+
+Aurora can invoke small capabilities during a conversation instead of relying only on memory — this only works if the configured `OPENROUTER_CHAT_MODEL` supports OpenAI-compatible tool/function calling.
+
+Adding a new skill means implementing the `skills.Skill` interface (`internal/skills/interfaces.go`) — `Name`, `Description`, `Parameters` (a JSON Schema of its arguments), and `Execute` — in its own subpackage under `internal/skills/`, then registering an instance in `cmd/main.go`'s `skillRegistry`. No changes to `agent.go` are needed for a new skill; the registry and the tool-calling loop handle dispatch automatically.
+
 ## Technology Stack
 
 | Concern | Technology |
@@ -75,6 +88,7 @@ The memory subsystem persists to:
 | Language | Go |
 | Discord | disgo |
 | Telegram | hand-rolled REST client over the Bot API |
+| Tool calling / Skills | custom registry over OpenAI-compatible function calling |
 | Vector memory | Qdrant (Docker) |
 | Cognitive graph | custom node/edge store (in-memory + JSON) |
 | LLM (chat & reflection) | OpenRouter, OpenAI-compatible API |
@@ -110,7 +124,7 @@ The memory subsystem persists to:
 | `FFMPEG_BIN_PATH` | no | `tools/ffmpeg/ffmpeg.exe` | Path to ffmpeg |
 | `OPENROUTER_API_KEY` | yes | — | OpenRouter API key |
 | `OPENROUTER_BASE_URL` | no | `https://openrouter.ai/api/v1` | OpenRouter (or compatible) base URL |
-| `OPENROUTER_CHAT_MODEL` | yes | — | Model used for chat replies |
+| `OPENROUTER_CHAT_MODEL` | yes | — | Model used for chat replies (must support tool/function calling if any skill is registered) |
 | `OPENROUTER_EMBED_MODEL` | yes | — | Model used for embeddings |
 | `OPENROUTER_REFLECTION_MODEL` | no | same as `OPENROUTER_CHAT_MODEL` | Model used for periodic reflection |
 | `QDRANT_URL` | no | `http://localhost:6333` | Qdrant base URL |
