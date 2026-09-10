@@ -12,6 +12,7 @@ import (
 	"github.com/Espectro0/AuroraProject/internal/agent"
 	"github.com/Espectro0/AuroraProject/internal/discord"
 	embedopenai "github.com/Espectro0/AuroraProject/internal/embedder/openai"
+	"github.com/Espectro0/AuroraProject/internal/httpclient"
 	"github.com/Espectro0/AuroraProject/internal/identity"
 	"github.com/Espectro0/AuroraProject/internal/llm/openai"
 	"github.com/Espectro0/AuroraProject/internal/memory"
@@ -20,8 +21,8 @@ import (
 	"github.com/Espectro0/AuroraProject/internal/reflection"
 	"github.com/Espectro0/AuroraProject/internal/skills"
 	"github.com/Espectro0/AuroraProject/internal/skills/clock"
+	"github.com/Espectro0/AuroraProject/internal/skills/siata"
 	"github.com/Espectro0/AuroraProject/internal/telegram"
-	"github.com/Espectro0/AuroraProject/internal/transcription/whispercpp"
 )
 
 func main() {
@@ -75,21 +76,22 @@ func main() {
 		MaxHistory: rules.ReflectionHistory,
 	})
 
+	siataClient := siata.NewClient(httpclient.New(30 * time.Second))
+
 	skillRegistry := skills.NewRegistry()
 	skillRegistry.Register(clock.New())
+	skillRegistry.Register(siata.New(siataClient))
 
 	a := agent.NewAgent(llmClient, idCore, mem, memStore, reflector, skillRegistry)
-	transProvider := whispercpp.New(cfg.SttBinPath, cfg.SttModelPath, cfg.SttLanguage, cfg.FfmpegBinPath)
-	transcriptionTimeout := time.Duration(id.LLM.TranscriptionTimeoutSeconds) * time.Second
 
-	discordBot := discord.NewBot(cfg.DiscordToken, a, transProvider, transcriptionTimeout)
+	discordBot := discord.NewBot(cfg.DiscordToken, a)
 	if err := discordBot.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 	log.Println("Aurora is running on Discord...")
 
 	if cfg.TelegramToken != "" {
-		telegramBot := telegram.NewBot(cfg.TelegramToken, a, transProvider, transcriptionTimeout)
+		telegramBot := telegram.NewBot(cfg.TelegramToken, a)
 		if err := telegramBot.Run(ctx); err != nil {
 			log.Fatal(err)
 		}

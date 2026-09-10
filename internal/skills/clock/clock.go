@@ -31,14 +31,14 @@ func (s *Skill) Parameters() map[string]any {
 	}
 }
 
-func (s *Skill) Execute(ctx context.Context, argsJSON string) (string, error) {
+func (s *Skill) Execute(ctx context.Context, argsJSON string) (skills.Result, error) {
 	now := time.Now()
 	out, err := json.Marshal(map[string]string{
 		"datetime": now.Format(time.RFC3339),
 		"weekday":  now.Weekday().String(),
 	})
 	if err != nil {
-		return "", err
+		return skills.Result{}, err
 	}
-	return string(out), nil
+	return skills.Result{Text: string(out)}, nil
 }

@@ -48,10 +48,10 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 	return defs
 }
 
-func (r *Registry) Execute(ctx context.Context, name string, argsJSON string) (string, error) {
+func (r *Registry) Execute(ctx context.Context, name string, argsJSON string) (Result, error) {
 	s, ok := r.Get(name)
 	if !ok {
-		return "", fmt.Errorf("skills: unknown skill %q", name)
+		return Result{}, fmt.Errorf("skills: unknown skill %q", name)
 	}
 	return s.Execute(ctx, argsJSON)
 }

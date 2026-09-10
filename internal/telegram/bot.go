@@ -2,25 +2,19 @@ package telegram
 
 import (
 	"context"
-	"time"
 
 	"github.com/Espectro0/AuroraProject/internal/agent"
-	"github.com/Espectro0/AuroraProject/internal/transcription"
 )
 
 type Bot struct {
-	ctx                  context.Context
-	api                  *apiClient
-	agent                agent.Service
-	transcription        transcription.Provider
-	transcriptionTimeout time.Duration
+	ctx   context.Context
+	api   *apiClient
+	agent agent.Service
 }
 
-func NewBot(token string, agent agent.Service, transcription transcription.Provider, transcriptionTimeout time.Duration) *Bot {
+func NewBot(token string, agent agent.Service) *Bot {
 	return &Bot{
-		api:                  newAPIClient(token),
-		agent:                agent,
-		transcription:        transcription,
-		transcriptionTimeout: transcriptionTimeout,
+		api:   newAPIClient(token),
+		agent: agent,
 	}
 }

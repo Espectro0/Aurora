@@ -23,8 +23,7 @@ type MemoryRules struct {
 }
 
 type LLMConfig struct {
-	ChatTimeoutSeconds          int `json:"chat_timeout_seconds"`
-	ReflectionTimeoutSeconds    int `json:"reflection_timeout_seconds"`
-	EmbedderTimeoutSeconds      int `json:"embedder_timeout_seconds"`
-	TranscriptionTimeoutSeconds int `json:"transcription_timeout_seconds"`
+	ChatTimeoutSeconds       int `json:"chat_timeout_seconds"`
+	ReflectionTimeoutSeconds int `json:"reflection_timeout_seconds"`
+	EmbedderTimeoutSeconds   int `json:"embedder_timeout_seconds"`
 }

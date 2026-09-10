@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -132,6 +135,63 @@ func (c *apiClient) sendChatAction(ctx context.Context, chatID int64, action str
 		"chat_id": chatID,
 		"action":  action,
 	}, nil)
+}
+
+func (c *apiClient) sendDocument(ctx context.Context, chatID int64, filePath string, filename string) error {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("telegram: opening attachment: %w", err)
+	}
+	defer f.Close()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	if err := writer.WriteField("chat_id", strconv.FormatInt(chatID, 10)); err != nil {
+		return fmt.Errorf("telegram: writing chat_id field: %w", err)
+	}
+
+	part, err := writer.CreateFormFile("document", filename)
+	if err != nil {
+		return fmt.Errorf("telegram: creating form file: %w", err)
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return fmt.Errorf("telegram: copying attachment: %w", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("telegram: closing multipart writer: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/sendDocument", &body)
+	if err != nil {
+		return fmt.Errorf("telegram: request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("telegram: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("telegram: read response: %w", err)
+	}
+
+	var envelope struct {
+		OK          bool   `json:"ok"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(bodyBytes, &envelope); err != nil {
+		return fmt.Errorf("telegram: decode: %w: %s", err, strings.TrimSpace(string(bodyBytes)))
+	}
+	if !envelope.OK {
+		return fmt.Errorf("telegram: sendDocument: %s", envelope.Description)
+	}
+
+	return nil
 }
 
 func (c *apiClient) getFile(ctx context.Context, fileID string) (file, error) {

@@ -2,28 +2,22 @@ package discord
 
 import (
 	"context"
-	"time"
 
 	"github.com/Espectro0/AuroraProject/internal/agent"
-	"github.com/Espectro0/AuroraProject/internal/transcription"
 
 	"github.com/disgoorg/disgo/bot"
 )
 
 type Bot struct {
-	ctx                  context.Context
-	token                string
-	agent                agent.Service
-	transcription        transcription.Provider
-	transcriptionTimeout time.Duration
-	client               *bot.Client
+	ctx    context.Context
+	token  string
+	agent  agent.Service
+	client *bot.Client
 }
 
-func NewBot(token string, agent agent.Service, transcription transcription.Provider, transcriptionTimeout time.Duration) *Bot {
+func NewBot(token string, agent agent.Service) *Bot {
 	return &Bot{
-		token:                token,
-		agent:                agent,
-		transcription:        transcription,
-		transcriptionTimeout: transcriptionTimeout,
+		token: token,
+		agent: agent,
 	}
 }

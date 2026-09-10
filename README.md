@@ -23,7 +23,6 @@ Its identity remains stable, while its knowledge, memories, and interests evolve
 - **Cognitive graph** — people, concepts, events, and reflections are modeled as nodes and edges (`data/aurora.edges.json`).
 - **Periodic reflection** — after every N messages, Aurora analyzes the conversation, distills a summary, writes to its journal, and consolidates memory nodes.
 - **Emerging interests** — clusters of frequently discussed concepts are detected and injected into the conversation context.
-- **Voice note transcription** — audio attachments are transcribed locally with whisper.cpp (ffmpeg handles Opus/Ogg conversion).
 - **Cloud LLM via OpenRouter** — chat, reflection, and embedding all go through OpenRouter, so you can pick any model (free or paid) it offers.
 - **Skills (tool calling)** — Aurora can invoke small, discrete capabilities mid-conversation via OpenAI-compatible function calling (e.g. checking the current date/time), instead of relying only on what it already knows. New skills are added by implementing a small interface and registering them at startup.
 - **Multi-platform** — the same identity, memory, and conversational agent are reachable from both Discord and Telegram; Telegram is optional and only starts if `TELEGRAM_BOT_TOKEN` is set.
@@ -47,7 +46,6 @@ Discord message                           Telegram message
         ▼                                         ▼
 internal/discord/messages.go             internal/telegram/messages.go
   text → agent.Reply()                     text → agent.Reply()
-  audio → whisper.cpp → agent.Reply()      voice → whisper.cpp → agent.Reply()
         │                                         │
         └──────────────────┬──────────────────────┘
                             ▼
@@ -93,8 +91,6 @@ Adding a new skill means implementing the `skills.Skill` interface (`internal/sk
 | Cognitive graph | custom node/edge store (in-memory + JSON) |
 | LLM (chat & reflection) | OpenRouter, OpenAI-compatible API |
 | Embeddings | OpenRouter embedding models |
-| Speech-to-text | whisper.cpp `whisper-cli` |
-| Audio conversion | ffmpeg (Opus/Ogg → WAV 16 kHz) |
 
 ## Requirements
 
@@ -103,8 +99,6 @@ Adding a new skill means implementing the `skills.Skill` interface (`internal/sk
 - A Telegram Bot (optional — via [@BotFather](https://t.me/BotFather))
 - An [OpenRouter](https://openrouter.ai) account and API key
 - Docker (for running Qdrant — see [Running Qdrant](#running-qdrant))
-- Local binaries in `tools/` (gitignored): `whisper-cli`, `ffmpeg`
-- NVIDIA GPU recommended for faster local transcription; CPU works but is slower
 
 ## Setup
 
@@ -118,10 +112,6 @@ Adding a new skill means implementing the `skills.Skill` interface (`internal/sk
 | --- | --- | --- | --- |
 | `DISCORD_TOKEN` | yes | — | Discord bot token |
 | `TELEGRAM_BOT_TOKEN` | no | — | Telegram bot token (from @BotFather) — Telegram integration only starts if this is set |
-| `STT_BIN_PATH` | yes | — | Path to `whisper-cli` |
-| `STT_MODEL_PATH` | yes | — | Path to the whisper GGML model |
-| `STT_LANGUAGE` | no | `es` | Whisper language code |
-| `FFMPEG_BIN_PATH` | no | `tools/ffmpeg/ffmpeg.exe` | Path to ffmpeg |
 | `OPENROUTER_API_KEY` | yes | — | OpenRouter API key |
 | `OPENROUTER_BASE_URL` | no | `https://openrouter.ai/api/v1` | OpenRouter (or compatible) base URL |
 | `OPENROUTER_CHAT_MODEL` | yes | — | Model used for chat replies (must support tool/function calling if any skill is registered) |
@@ -130,7 +120,6 @@ Adding a new skill means implementing the `skills.Skill` interface (`internal/sk
 | `QDRANT_URL` | no | `http://localhost:6333` | Qdrant base URL |
 | `QDRANT_API_KEY` | no | — | Qdrant API key (only needed for a secured/remote instance) |
 | `QDRANT_COLLECTION` | no | `aurora_memories` | Qdrant collection name |
-| `AURORA_KEEP_WAV` | no | — | Keep temp WAV files for debugging |
 
 ### Identity and memory tuning — `data/aurora.json`
 
@@ -155,8 +144,7 @@ Adding a new skill means implementing the `skills.Skill` interface (`internal/sk
   "llm": {
     "chat_timeout_seconds": 60,
     "reflection_timeout_seconds": 120,
-    "embedder_timeout_seconds": 60,
-    "transcription_timeout_seconds": 120
+    "embedder_timeout_seconds": 60
   }
 }
 ```
@@ -182,7 +170,6 @@ docker run -p 6333:6333 -v qdrant_storage:/qdrant/storage qdrant/qdrant
 ## Usage
 
 - **Text chat** — any message (Discord channel or Telegram chat) is processed by the agent and answered on the same platform.
-- **Voice notes / audio** — Discord attachments with an audio content type (`.ogg`, `.opus`, `.mp3`, `.wav`, `.flac`, `.m4a`, `.mp4`, `.aac`) and Telegram voice/audio messages are downloaded, converted, and transcribed before being sent to the agent.
 
 ## License
 

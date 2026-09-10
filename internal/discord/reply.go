@@ -1,13 +1,12 @@
 package discord
 
 import (
-	"context"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
+	"os"
 	"strings"
 
+	"github.com/Espectro0/AuroraProject/internal/skills"
 	ddiscord "github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 )
@@ -41,6 +40,29 @@ func (b *Bot) sendChunk(e *events.MessageCreate, content string) {
 	}
 }
 
+func (b *Bot) sendAttachments(e *events.MessageCreate, attachments []skills.Attachment) {
+	for _, a := range attachments {
+		f, err := os.Open(a.Path)
+		if err != nil {
+			log.Printf("error opening attachment %s: %v", a.Path, err)
+			continue
+		}
+
+		name := a.Filename
+		if name == "" {
+			name = "adjunto"
+		}
+
+		_, err = e.Client().Rest.CreateMessage(e.ChannelID, ddiscord.MessageCreate{
+			Files: []*ddiscord.File{ddiscord.NewFile(name, "", f)},
+		})
+		f.Close()
+		if err != nil {
+			log.Printf("error sending attachment %s: %v", a.Path, err)
+		}
+	}
+}
+
 func chunkText(s string, max int) []string {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -61,20 +83,4 @@ func chunkText(s string, max int) []string {
 		chunks = append(chunks, strings.TrimSpace(string(runes)))
 	}
 	return chunks
-}
-
-func downloadAttachment(ctx context.Context, att *ddiscord.Attachment) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, att.URL, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
-	return io.ReadAll(resp.Body)
 }

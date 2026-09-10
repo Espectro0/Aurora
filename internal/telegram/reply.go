@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"strings"
+
+	"github.com/Espectro0/AuroraProject/internal/skills"
 )
 
 const maxMessageLen = 4096
@@ -32,6 +34,18 @@ func (b *Bot) sendMessage(chatID int64, content string) {
 func (b *Bot) sendChunk(chatID int64, content string) {
 	if err := b.api.sendMessage(b.ctx, chatID, content); err != nil {
 		log.Printf("error sending message: %v", err)
+	}
+}
+
+func (b *Bot) sendAttachments(chatID int64, attachments []skills.Attachment) {
+	for _, a := range attachments {
+		name := a.Filename
+		if name == "" {
+			name = "adjunto"
+		}
+		if err := b.api.sendDocument(b.ctx, chatID, a.Path, name); err != nil {
+			log.Printf("error sending attachment %s: %v", a.Path, err)
+		}
 	}
 }
 

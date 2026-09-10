@@ -10,10 +10,6 @@ import (
 type Config struct {
 	DiscordToken  string
 	TelegramToken string
-	SttBinPath    string
-	SttModelPath  string
-	SttLanguage   string
-	FfmpegBinPath string
 
 	OpenRouterAPIKey          string
 	OpenRouterBaseURL         string
@@ -31,10 +27,6 @@ func LoadConfig() (*Config, error) {
 	return &Config{
 		DiscordToken:  mustGetenv("DISCORD_TOKEN"),
 		TelegramToken: getenv("TELEGRAM_BOT_TOKEN", ""),
-		SttBinPath:    mustGetenv("STT_BIN_PATH"),
-		SttModelPath:  mustGetenv("STT_MODEL_PATH"),
-		SttLanguage:   getenv("STT_LANGUAGE", "es"),
-		FfmpegBinPath: getenv("FFMPEG_BIN_PATH", "tools/ffmpeg/ffmpeg.exe"),
 
 		OpenRouterAPIKey:          mustGetenv("OPENROUTER_API_KEY"),
 		OpenRouterBaseURL:         getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),

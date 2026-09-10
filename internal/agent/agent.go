@@ -52,7 +52,7 @@ func NewAgent(llm llm.Provider, id *identity.Core, memory memory.Store, memStore
 	}
 }
 
-func (a *Agent) Reply(ctx context.Context, userID string, message string) (string, error) {
+func (a *Agent) Reply(ctx context.Context, userID string, message string) (string, []skills.Attachment, error) {
 	userMsg := conversation.NewMessage(conversation.User, message)
 	a.memory.Save(userID, userMsg)
 
@@ -142,9 +142,9 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 		}
 	}
 
-	response, err := a.runWithTools(ctx, history)
+	response, attachments, err := a.runWithTools(ctx, history)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	assistantMsg := conversation.NewMessage(conversation.Assistant, response)
@@ -166,25 +166,27 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 		}
 	}
 
-	return response, nil
+	return response, attachments, nil
 }
 
 const maxToolIterations = 4
 
-func (a *Agent) runWithTools(ctx context.Context, history []conversation.Message) (string, error) {
+func (a *Agent) runWithTools(ctx context.Context, history []conversation.Message) (string, []skills.Attachment, error) {
 	var tools []llm.ToolDefinition
 	if a.skills != nil {
 		tools = a.skills.Definitions()
 	}
 
+	var attachments []skills.Attachment
+
 	for i := 0; i < maxToolIterations; i++ {
 		result, err := a.llm.ChatWithTools(ctx, history, tools)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 
 		if len(result.ToolCalls) == 0 {
-			return result.Content, nil
+			return result.Content, attachments, nil
 		}
 
 		history = append(history, conversation.NewAssistantToolCallMessage(result.ToolCalls))
@@ -194,7 +196,13 @@ func (a *Agent) runWithTools(ctx context.Context, history []conversation.Message
 
 			var output string
 			if a.skills != nil {
-				output, err = a.skills.Execute(ctx, call.Name, call.Arguments)
+				res, execErr := a.skills.Execute(ctx, call.Name, call.Arguments)
+				if execErr != nil {
+					err = execErr
+				} else {
+					output = res.Text
+					attachments = append(attachments, res.Attachments...)
+				}
 			} else {
 				err = fmt.Errorf("no hay skills registradas")
 			}
@@ -210,9 +218,9 @@ func (a *Agent) runWithTools(ctx context.Context, history []conversation.Message
 	log.Printf("[agent] max tool iterations reached, forcing final answer")
 	final, err := a.llm.ChatWithTools(ctx, history, nil)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return final.Content, nil
+	return final.Content, attachments, nil
 }
 
 func (a *Agent) Wait() {
