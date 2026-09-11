@@ -3,7 +3,9 @@ package cornare
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/Espectro0/AuroraProject/internal/httpclient"
@@ -84,7 +86,7 @@ func (c *Client) Estaciones() ([]Estacion, error) {
 	}
 
 	if err := writeCache(resp); err != nil {
-		return nil, fmt.Errorf("cornare: guardando cache: %w", err)
+		log.Printf("cornare: guardando cache: %v", err)
 	}
 
 	return resp.Values, nil
@@ -105,6 +107,9 @@ func readCache() ([]Estacion, error) {
 func writeCache(resp estacionesResp) error {
 	data, err := json.MarshalIndent(resp, "", "    ")
 	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0755); err != nil {
 		return err
 	}
 	return os.WriteFile(cachePath, data, 0644)

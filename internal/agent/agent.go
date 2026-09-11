@@ -105,10 +105,12 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 				b.WriteString("Estos son tus recuerdos a largo plazo recuperados en este momento.\n")
 				b.WriteString("Si el usuario menciona o pregunta por algo de aqui, responde con naturalidad y seguridad como algo que tu recuerdas.\n")
 				b.WriteString("No digas que no recuerdas si la informacion esta aqui.\n\n")
+				b.WriteString("IMPORTANTE: Estos recuerdos son solo contexto pasado, no una respuesta valida. Si requieres utilizar una skill usa la correspondiente.\n\n")
 				for _, n := range kept {
 					b.WriteString(fmt.Sprintf("- %s\n", n.Content))
 				}
-				history = append(history, conversation.NewMessage(conversation.System, b.String()))
+				history = append(history, conversation.NewMessage(conversation.System,
+					"Resumen de una conversacion pasada (no uses esto como respuesta a una peticion nueva de datos en vivo)"))
 
 				log.Printf("[agent] memories injected: %d (max score %.2f)", len(kept), kept[0].Similarity)
 			}
