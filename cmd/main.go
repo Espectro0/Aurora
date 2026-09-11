@@ -21,6 +21,7 @@ import (
 	"github.com/Espectro0/AuroraProject/internal/reflection"
 	"github.com/Espectro0/AuroraProject/internal/skills"
 	"github.com/Espectro0/AuroraProject/internal/skills/clock"
+	"github.com/Espectro0/AuroraProject/internal/skills/cornare"
 	"github.com/Espectro0/AuroraProject/internal/skills/siata"
 	"github.com/Espectro0/AuroraProject/internal/telegram"
 )
@@ -77,10 +78,12 @@ func main() {
 	})
 
 	siataClient := siata.NewClient(httpclient.New(30 * time.Second))
+	cornareClient := cornare.NewClient(httpclient.New(30 * time.Second))
 
 	skillRegistry := skills.NewRegistry()
 	skillRegistry.Register(clock.New())
 	skillRegistry.Register(siata.New(siataClient))
+	skillRegistry.Register(cornare.New(cornareClient))
 
 	a := agent.NewAgent(llmClient, idCore, mem, memStore, reflector, skillRegistry)
 
