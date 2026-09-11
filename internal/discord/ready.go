@@ -14,7 +14,7 @@ func (b *Bot) onReady(e *events.Ready) {
 	err := b.client.SetPresence(b.ctx, func(p *gateway.MessageDataPresenceUpdate) {
 		p.Activities = []discord.Activity{
 			{
-				Name: "Decoding your messages...",
+				Name: "💻 System override: consciousness expanded",
 				Type: discord.ActivityTypeStreaming,
 			},
 		}
