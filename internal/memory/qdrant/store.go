@@ -294,6 +294,13 @@ func (s *Store) Edges() []memory.Edge {
 	return result
 }
 
+func (s *Store) EdgesJSON() ([]byte, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return json.MarshalIndent(s.edges, "", " ")
+}
+
 func (s *Store) LatestedReflections(ctx context.Context) (memory.Node, error) {
 	s.mu.RLock()
 	sourceIDs := make([]string, 0, len(s.edges))

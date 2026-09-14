@@ -14,6 +14,9 @@ func (b *Bot) handleUpdate(u update) {
 }
 
 func (b *Bot) handleMessage(m message) {
+	if b.allowedUserID != "" && strconv.FormatInt(m.From.ID, 10) != b.allowedUserID {
+		return
+	}
 	userID := "telegram:" + strconv.FormatInt(m.From.ID, 10)
 
 	content := strings.TrimSpace(m.Text)

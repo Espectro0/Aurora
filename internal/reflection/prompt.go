@@ -24,6 +24,7 @@ Memorias:
 - Máximo 5 nodos.
 - Solo crea un nodo si vale la pena conservarlo a largo plazo.
 - No guardes conversaciones triviales, saludos ni preguntas pasajeras.
+- No crees nodos a partir de datos obtenidos mediante skills/herramientas (hora, clima, trámites, etc.); son datos en vivo y efímeros, no hechos duraderos.
 - Cada nodo debe representar un único hecho.
 - El campo "label" debe ser corto, estable y canónico.
 - Usa nombres propios exactamente como aparecen.

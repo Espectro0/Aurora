@@ -52,6 +52,11 @@ func (r *Reflector) Analyze(ctx context.Context, userID string) error {
 		return nil
 	}
 
+	history = filterSkillTurns(history)
+	if len(history) == 0 {
+		return nil
+	}
+
 	if len(history) > r.config.MaxHistory {
 		history = history[len(history)-r.config.MaxHistory:]
 	}
@@ -88,6 +93,17 @@ func (r *Reflector) Analyze(ctx context.Context, userID string) error {
 
 	log.Printf("[reflection] Analized conversation of %s: %s", userID, prop.Summary)
 	return nil
+}
+
+func filterSkillTurns(history []conversation.Message) []conversation.Message {
+	filtered := make([]conversation.Message, 0, len(history))
+	for _, m := range history {
+		if m.SkillUsed {
+			continue
+		}
+		filtered = append(filtered, m)
+	}
+	return filtered
 }
 
 func (r *Reflector) parseResponse(raw string) (proposals.Proposal, error) {

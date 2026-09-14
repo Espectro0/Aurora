@@ -4,6 +4,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    ports:
+      - "8095:8095"
     volumes:
       - ./data:/app/data
     extra_hosts:

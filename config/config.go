@@ -20,6 +20,9 @@ type Config struct {
 	QdrantURL        string
 	QdrantAPIKey     string
 	QdrantCollection string
+
+	AllowedDiscordUserID  string
+	AllowedTelegramUserID string
 }
 
 func LoadConfig() (*Config, error) {
@@ -37,6 +40,9 @@ func LoadConfig() (*Config, error) {
 		QdrantURL:        getenv("QDRANT_URL", "http://localhost:6333"),
 		QdrantAPIKey:     getenv("QDRANT_API_KEY", ""),
 		QdrantCollection: getenv("QDRANT_COLLECTION", "aurora_memories"),
+
+		AllowedDiscordUserID:  getenv("ALLOWED_DISCORD_USER_ID", ""),
+		AllowedTelegramUserID: getenv("ALLOWED_TELEGRAM_USER_ID", ""),
 	}, nil
 }
 

@@ -22,6 +22,7 @@ type Message struct {
 	CreatedAt  time.Time
 	ToolCallID string
 	ToolCalls  []ToolCall
+	SkillUsed  bool
 }
 
 func NewMessage(role Role, content string) Message {

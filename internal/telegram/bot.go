@@ -7,14 +7,16 @@ import (
 )
 
 type Bot struct {
-	ctx   context.Context
-	api   *apiClient
-	agent agent.Service
+	ctx           context.Context
+	api           *apiClient
+	agent         agent.Service
+	allowedUserID string
 }
 
-func NewBot(token string, agent agent.Service) *Bot {
+func NewBot(token string, agent agent.Service, allowedUserID string) *Bot {
 	return &Bot{
-		api:   newAPIClient(token),
-		agent: agent,
+		api:           newAPIClient(token),
+		agent:         agent,
+		allowedUserID: allowedUserID,
 	}
 }

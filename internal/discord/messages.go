@@ -13,6 +13,9 @@ func (b *Bot) onMessageCreate(e *events.MessageCreate) {
 	if e.Message.Author.ID == b.client.ID() {
 		return
 	}
+	if b.allowedUserID != "" && e.Message.Author.ID.String() != b.allowedUserID {
+		return
+	}
 
 	content := strings.TrimSpace(e.Message.Content)
 	if content == "" {

@@ -144,12 +144,13 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 		}
 	}
 
-	response, attachments, err := a.runWithTools(ctx, history)
+	response, attachments, usedSkills, err := a.runWithTools(ctx, history)
 	if err != nil {
 		return "", nil, err
 	}
 
 	assistantMsg := conversation.NewMessage(conversation.Assistant, response)
+	assistantMsg.SkillUsed = usedSkills
 	a.memory.Save(userID, assistantMsg)
 
 	if a.reflector != nil {
@@ -173,24 +174,26 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 
 const maxToolIterations = 4
 
-func (a *Agent) runWithTools(ctx context.Context, history []conversation.Message) (string, []skills.Attachment, error) {
+func (a *Agent) runWithTools(ctx context.Context, history []conversation.Message) (string, []skills.Attachment, bool, error) {
 	var tools []llm.ToolDefinition
 	if a.skills != nil {
 		tools = a.skills.Definitions()
 	}
 
 	var attachments []skills.Attachment
+	usedSkills := false
 
 	for i := 0; i < maxToolIterations; i++ {
 		result, err := a.llm.ChatWithTools(ctx, history, tools)
 		if err != nil {
-			return "", nil, err
+			return "", nil, usedSkills, err
 		}
 
 		if len(result.ToolCalls) == 0 {
-			return result.Content, attachments, nil
+			return result.Content, attachments, usedSkills, nil
 		}
 
+		usedSkills = true
 		history = append(history, conversation.NewAssistantToolCallMessage(result.ToolCalls))
 
 		for _, call := range result.ToolCalls {
@@ -220,9 +223,9 @@ func (a *Agent) runWithTools(ctx context.Context, history []conversation.Message
 	log.Printf("[agent] max tool iterations reached, forcing final answer")
 	final, err := a.llm.ChatWithTools(ctx, history, nil)
 	if err != nil {
-		return "", nil, err
+		return "", nil, usedSkills, err
 	}
-	return final.Content, attachments, nil
+	return final.Content, attachments, usedSkills, nil
 }
 
 func (a *Agent) Wait() {

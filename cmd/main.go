@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,6 +17,7 @@ import (
 	"github.com/Espectro0/AuroraProject/internal/identity"
 	"github.com/Espectro0/AuroraProject/internal/llm/openai"
 	"github.com/Espectro0/AuroraProject/internal/memory"
+	"github.com/Espectro0/AuroraProject/internal/memory/api"
 	"github.com/Espectro0/AuroraProject/internal/memory/qdrant"
 	"github.com/Espectro0/AuroraProject/internal/proposals"
 	"github.com/Espectro0/AuroraProject/internal/reflection"
@@ -69,6 +71,14 @@ func main() {
 	defer memStore.Close()
 	memStore.SetClusterThreshold(rules.ClusterThreshold)
 
+	edgesRouter := api.NewRouter(memStore)
+	go func() {
+		log.Println("Edges API server listening on port 8095")
+		if err := http.ListenAndServe(":8095", edgesRouter); err != nil {
+			log.Printf("Edges API server failed: %v", err)
+		}
+	}()
+
 	mem := memory.NewInMemory()
 	threshold := rules.SemanticRelevanceThreshold
 	propSystem := proposals.NewMemoryProcessor(memStore, "data/journal.md", threshold)
@@ -87,14 +97,14 @@ func main() {
 
 	a := agent.NewAgent(llmClient, idCore, mem, memStore, reflector, skillRegistry)
 
-	discordBot := discord.NewBot(cfg.DiscordToken, a)
+	discordBot := discord.NewBot(cfg.DiscordToken, a, cfg.AllowedDiscordUserID)
 	if err := discordBot.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
 	log.Println("Aurora is running on Discord...")
 
 	if cfg.TelegramToken != "" {
-		telegramBot := telegram.NewBot(cfg.TelegramToken, a)
+		telegramBot := telegram.NewBot(cfg.TelegramToken, a, cfg.AllowedTelegramUserID)
 		if err := telegramBot.Run(ctx); err != nil {
 			log.Fatal(err)
 		}

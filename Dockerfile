@@ -22,4 +22,6 @@ RUN update-ca-certificates
 WORKDIR /app
 COPY --from=build /out/aurora ./aurora
 
+EXPOSE 8095
+
 ENTRYPOINT ["./aurora"]
