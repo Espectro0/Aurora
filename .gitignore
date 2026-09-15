@@ -4,3 +4,5 @@ tools/
 data/
 cache/
 .env
+.claude
+.git

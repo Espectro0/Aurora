@@ -23,6 +23,10 @@ type Config struct {
 
 	AllowedDiscordUserID  string
 	AllowedTelegramUserID string
+
+	ApirocAPIKey           string
+	ApirocBaseURL          string
+	ApirocEndUserAccountID string
 }
 
 func LoadConfig() (*Config, error) {
@@ -43,6 +47,10 @@ func LoadConfig() (*Config, error) {
 
 		AllowedDiscordUserID:  getenv("ALLOWED_DISCORD_USER_ID", ""),
 		AllowedTelegramUserID: getenv("ALLOWED_TELEGRAM_USER_ID", ""),
+
+		ApirocAPIKey:           getenv("APIROC_API_KEY", ""),
+		ApirocBaseURL:          getenv("APIROC_BASE_URL", "https://api.apiroc.com/api/v1"),
+		ApirocEndUserAccountID: getenv("APIROC_USER_ID", ""),
 	}, nil
 }
 

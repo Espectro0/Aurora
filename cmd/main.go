@@ -22,6 +22,7 @@ import (
 	"github.com/Espectro0/AuroraProject/internal/proposals"
 	"github.com/Espectro0/AuroraProject/internal/reflection"
 	"github.com/Espectro0/AuroraProject/internal/skills"
+	"github.com/Espectro0/AuroraProject/internal/skills/calendar"
 	"github.com/Espectro0/AuroraProject/internal/skills/clock"
 	"github.com/Espectro0/AuroraProject/internal/skills/cornare"
 	"github.com/Espectro0/AuroraProject/internal/skills/siata"
@@ -94,6 +95,14 @@ func main() {
 	skillRegistry.Register(clock.New())
 	skillRegistry.Register(siata.New(siataClient))
 	skillRegistry.Register(cornare.New(cornareClient))
+
+	if cfg.ApirocAPIKey != "" && cfg.ApirocEndUserAccountID != "" {
+		calendarClient := calendar.NewClient(cfg.ApirocBaseURL, cfg.ApirocAPIKey, cfg.ApirocEndUserAccountID)
+		skillRegistry.Register(calendar.NewListCalendars(calendarClient))
+		skillRegistry.Register(calendar.NewListEvents(calendarClient))
+		skillRegistry.Register(calendar.NewGetEvent(calendarClient))
+		skillRegistry.Register(calendar.NewCreateEvent(calendarClient))
+	}
 
 	a := agent.NewAgent(llmClient, idCore, mem, memStore, reflector, skillRegistry)
 
