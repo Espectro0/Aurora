@@ -20,6 +20,12 @@ type MemoryRules struct {
 	ClusterThreshold           float64 `json:"cluster_threshold"`
 	MinClusterSize             int     `json:"min_cluster_size"`
 	InterestTTLMinutes         int     `json:"interest_ttl_minutes"`
+	ImportanceWeight           float64 `json:"importance_weight"`
+	ReflectionGateThreshold    float64 `json:"reflection_gate_threshold"`
+	WorthKeepingThreshold      float64 `json:"worth_keeping_threshold"`
+	SameEntityThreshold        float64 `json:"same_entity_threshold"`
+	NodeReplaceThreshold       float64 `json:"node_replace_threshold"`
+	IdentityChangeThreshold    float64 `json:"identity_change_threshold"`
 }
 
 type LLMConfig struct {

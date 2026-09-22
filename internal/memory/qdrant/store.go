@@ -117,6 +117,10 @@ func (s *Store) CreateNode(ctx context.Context, node memory.Node) error {
 	return nil
 }
 
+func (s *Store) UpdateNode(ctx context.Context, node memory.Node) error {
+	return s.CreateNode(ctx, node)
+}
+
 func (s *Store) GetNode(ctx context.Context, id string) (memory.Node, error) {
 	points, err := s.client.retrievePoints(ctx, s.collection, []string{id})
 	if err != nil {

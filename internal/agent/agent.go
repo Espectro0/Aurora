@@ -88,8 +88,8 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 				log.Printf("[agent] recall fallback: %d (max score %.2f)", len(kept), kept[0].Similarity)
 			}
 
-			if rules.RecencyWeight > 0 && len(kept) > 1 {
-				applyRecency(kept, rules.RecencyWeight)
+			if (rules.RecencyWeight > 0 || rules.ImportanceWeight > 0) && len(kept) > 1 {
+				rerank(kept, rules.RecencyWeight, rules.ImportanceWeight)
 			}
 
 			if a.memStore != nil {
@@ -439,14 +439,25 @@ func (a *Agent) latestReflection(ctx context.Context) memory.Node {
 	return node
 }
 
-func applyRecency(nodes []memory.Node, w float64) {
-	newest, oldest := nodes[0].CreatedAt, nodes[0].CreatedAt
+// defaultImportance is assumed for nodes stored before importance existed.
+const defaultImportance = 0.5
+
+// rerank blends each node's similarity with how recently it changed
+// (relative to the others) and its stored importance, then sorts by the result.
+func rerank(nodes []memory.Node, recencyW, importanceW float64) {
+	simW := 1 - recencyW - importanceW
+	if simW < 0 {
+		simW = 0
+	}
+
+	newest, oldest := nodes[0].LastTouched(), nodes[0].LastTouched()
 	for _, n := range nodes {
-		if n.CreatedAt.After(newest) {
-			newest = n.CreatedAt
+		t := n.LastTouched()
+		if t.After(newest) {
+			newest = t
 		}
-		if n.CreatedAt.Before(oldest) {
-			oldest = n.CreatedAt
+		if t.Before(oldest) {
+			oldest = t
 		}
 	}
 
@@ -454,9 +465,13 @@ func applyRecency(nodes []memory.Node, w float64) {
 	for i := range nodes {
 		r := 1.0
 		if span > 0 {
-			r = nodes[i].CreatedAt.Sub(oldest).Seconds() / span.Seconds()
+			r = nodes[i].LastTouched().Sub(oldest).Seconds() / span.Seconds()
 		}
-		nodes[i].Similarity = (1-w)*nodes[i].Similarity + w*r
+		imp, ok := nodes[i].Importance()
+		if !ok {
+			imp = defaultImportance
+		}
+		nodes[i].Similarity = simW*nodes[i].Similarity + recencyW*r + importanceW*imp
 	}
 
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Similarity > nodes[j].Similarity })

@@ -16,6 +16,7 @@ type Config struct {
 	OpenRouterChatModel       string
 	OpenRouterEmbedModel      string
 	OpenRouterReflectionModel string
+	OpenRouterDecisionModel   string
 
 	QdrantURL        string
 	QdrantAPIKey     string
@@ -40,6 +41,7 @@ func LoadConfig() (*Config, error) {
 		OpenRouterChatModel:       mustGetenv("OPENROUTER_CHAT_MODEL"),
 		OpenRouterEmbedModel:      mustGetenv("OPENROUTER_EMBED_MODEL"),
 		OpenRouterReflectionModel: getenv("OPENROUTER_REFLECTION_MODEL", ""),
+		OpenRouterDecisionModel:   getenv("OPENROUTER_DECISION_MODEL", ""),
 
 		QdrantURL:        getenv("QDRANT_URL", "http://localhost:6333"),
 		QdrantAPIKey:     getenv("QDRANT_API_KEY", ""),

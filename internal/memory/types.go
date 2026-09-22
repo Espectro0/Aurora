@@ -24,6 +24,12 @@ const (
 	EdgeSentiment    EdgeType = "sentiment"
 )
 
+const (
+	MetaImportance      = "importance"       // float64 in [0,1]
+	MetaUpdatedAt       = "updated_at"       // RFC3339 string
+	MetaPreviousContent = "previous_content" // content before the last replace
+)
+
 type Node struct {
 	ID         string
 	Type       NodeType
@@ -40,4 +46,18 @@ type Edge struct {
 	Type      EdgeType
 	Weight    float64
 	CreatedAt time.Time
+}
+
+func (n Node) Importance() (float64, bool) {
+	v, ok := n.Metadata[MetaImportance].(float64)
+	return v, ok
+}
+
+func (n Node) LastTouched() time.Time {
+	if s, ok := n.Metadata[MetaUpdatedAt].(string); ok {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			return t
+		}
+	}
+	return n.CreatedAt
 }

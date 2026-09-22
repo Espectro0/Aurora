@@ -13,6 +13,7 @@ type Store interface {
 
 type MemoryStore interface {
 	CreateNode(ctx context.Context, node Node) error
+	UpdateNode(ctx context.Context, node Node) error
 	GetNode(ctx context.Context, id string) (Node, error)
 	SearchNodes(ctx context.Context, query string, limit int) ([]Node, error)
 	CreateEdge(ctx context.Context, edge Edge) error

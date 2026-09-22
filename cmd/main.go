@@ -11,6 +11,7 @@ import (
 
 	"github.com/Espectro0/AuroraProject/config"
 	"github.com/Espectro0/AuroraProject/internal/agent"
+	"github.com/Espectro0/AuroraProject/internal/decision/jev"
 	"github.com/Espectro0/AuroraProject/internal/discord"
 	embedopenai "github.com/Espectro0/AuroraProject/internal/embedder/openai"
 	"github.com/Espectro0/AuroraProject/internal/httpclient"
@@ -57,6 +58,10 @@ func main() {
 	codeLLM.SetBaseURL(cfg.OpenRouterBaseURL)
 	codeLLM.SetAPIKey(cfg.OpenRouterAPIKey)
 
+	decisionClient := jev.New(cfg.OpenRouterDecisionModel, 15*time.Second)
+	decisionClient.SetBaseURL(cfg.OpenRouterBaseURL)
+	decisionClient.SetAPIKey(cfg.OpenRouterAPIKey)
+
 	emb := embedopenai.New(cfg.OpenRouterEmbedModel, time.Duration(id.LLM.EmbedderTimeoutSeconds)*time.Second)
 	emb.SetBaseURL(cfg.OpenRouterBaseURL)
 	emb.SetAPIKey(cfg.OpenRouterAPIKey)
@@ -81,11 +86,18 @@ func main() {
 	}()
 
 	mem := memory.NewInMemory()
-	threshold := rules.SemanticRelevanceThreshold
-	propSystem := proposals.NewMemoryProcessor(memStore, "data/journal.md", threshold)
-	reflector := reflection.New(codeLLM, propSystem, mem, reflection.Config{
-		Interval:   rules.ReflectionInterval,
-		MaxHistory: rules.ReflectionHistory,
+	propSystem := proposals.NewMemoryProcessor(memStore, decisionClient, idCore, proposals.Config{
+		JournalPath:             "data/journal.md",
+		SimilarityThreshold:     rules.SemanticRelevanceThreshold,
+		SameEntityThreshold:     rules.SameEntityThreshold,
+		NodeReplaceThreshold:    rules.NodeReplaceThreshold,
+		IdentityChangeThreshold: rules.IdentityChangeThreshold,
+	})
+	reflector := reflection.New(codeLLM, decisionClient, propSystem, mem, idCore, reflection.Config{
+		Interval:              rules.ReflectionInterval,
+		MaxHistory:            rules.ReflectionHistory,
+		GateThreshold:         rules.ReflectionGateThreshold,
+		WorthKeepingThreshold: rules.WorthKeepingThreshold,
 	})
 
 	siataClient := siata.NewClient(httpclient.New(30 * time.Second))

@@ -29,6 +29,25 @@ func (c *Core) Get() IdentityCore {
 	return c.identity
 }
 
+func (c *Core) Update(fn func(*IdentityCore)) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	prev := c.identity
+	next := c.identity
+	next.Values = append([]string(nil), prev.Values...)
+	next.ConversationalPrinciples = append([]string(nil), prev.ConversationalPrinciples...)
+	next.FoundationalMemories = append([]string(nil), prev.FoundationalMemories...)
+	fn(&next)
+
+	c.identity = next
+	if err := c.save(); err != nil {
+		c.identity = prev
+		return err
+	}
+	return nil
+}
+
 func (c *Core) Reload() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -52,7 +71,11 @@ func (c *Core) save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(c.path, raw, 0644)
+	tmp := c.path + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, c.path)
 }
 
 func Default() *IdentityCore {
@@ -78,6 +101,12 @@ func Default() *IdentityCore {
 			ClusterThreshold:           0.70,
 			MinClusterSize:             2,
 			InterestTTLMinutes:         10,
+			ImportanceWeight:           0.1,
+			ReflectionGateThreshold:    0.4,
+			WorthKeepingThreshold:      0.5,
+			SameEntityThreshold:        0.7,
+			NodeReplaceThreshold:       0.8,
+			IdentityChangeThreshold:    0.85,
 		},
 		LLM: LLMConfig{
 			ChatTimeoutSeconds:       60,
@@ -108,6 +137,21 @@ func (i *IdentityCore) applyDefaults() {
 	}
 	if i.MemoryUsageRules.InterestTTLMinutes == 0 {
 		i.MemoryUsageRules.InterestTTLMinutes = 10
+	}
+	if i.MemoryUsageRules.ReflectionGateThreshold == 0 {
+		i.MemoryUsageRules.ReflectionGateThreshold = 0.4
+	}
+	if i.MemoryUsageRules.WorthKeepingThreshold == 0 {
+		i.MemoryUsageRules.WorthKeepingThreshold = 0.5
+	}
+	if i.MemoryUsageRules.SameEntityThreshold == 0 {
+		i.MemoryUsageRules.SameEntityThreshold = 0.7
+	}
+	if i.MemoryUsageRules.NodeReplaceThreshold == 0 {
+		i.MemoryUsageRules.NodeReplaceThreshold = 0.8
+	}
+	if i.MemoryUsageRules.IdentityChangeThreshold == 0 {
+		i.MemoryUsageRules.IdentityChangeThreshold = 0.85
 	}
 	if i.LLM.ChatTimeoutSeconds == 0 {
 		i.LLM.ChatTimeoutSeconds = 60

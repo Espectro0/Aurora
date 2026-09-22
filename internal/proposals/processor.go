@@ -24,14 +24,8 @@ func (p *SimpleProcessor) Process(ctx context.Context, prop Proposal) error {
 			prop.Journal.Mood,
 		)
 
-		f, err := os.OpenFile(p.journalPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			return fmt.Errorf("journal: %w", err)
-		}
-		defer f.Close()
-
-		if _, err := f.WriteString(entry); err != nil {
-			return fmt.Errorf("journal: write: %w", err)
+		if err := p.appendJournal(entry); err != nil {
+			return err
 		}
 	}
 
@@ -39,5 +33,22 @@ func (p *SimpleProcessor) Process(ctx context.Context, prop Proposal) error {
 		log.Printf("[reflection] %s: %s", prop.ReflectionID, prop.Summary)
 	}
 
+	return nil
+}
+
+func (p *SimpleProcessor) AppendNote(note string) error {
+	return p.appendJournal("\n" + note + "\n")
+}
+
+func (p *SimpleProcessor) appendJournal(text string) error {
+	f, err := os.OpenFile(p.journalPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("journal: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(text); err != nil {
+		return fmt.Errorf("journal: write: %w", err)
+	}
 	return nil
 }
