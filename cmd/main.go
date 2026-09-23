@@ -77,14 +77,6 @@ func main() {
 	defer memStore.Close()
 	memStore.SetClusterThreshold(rules.ClusterThreshold)
 
-	edgesRouter := api.NewRouter(memStore)
-	go func() {
-		log.Println("Edges API server listening on port 8095")
-		if err := http.ListenAndServe(":8095", edgesRouter); err != nil {
-			log.Printf("Edges API server failed: %v", err)
-		}
-	}()
-
 	mem := memory.NewInMemory()
 	propSystem := proposals.NewMemoryProcessor(memStore, decisionClient, idCore, proposals.Config{
 		JournalPath:             "data/journal.md",
@@ -99,6 +91,14 @@ func main() {
 		GateThreshold:         rules.ReflectionGateThreshold,
 		WorthKeepingThreshold: rules.WorthKeepingThreshold,
 	})
+
+	edgesRouter := api.NewRouter(memStore, propSystem.Journal())
+	go func() {
+		log.Println("Edges API server listening on port 8095")
+		if err := http.ListenAndServe(":8095", edgesRouter); err != nil {
+			log.Printf("Edges API server failed: %v", err)
+		}
+	}()
 
 	siataClient := siata.NewClient(httpclient.New(30 * time.Second))
 	cornareClient := cornare.NewClient(httpclient.New(30 * time.Second))

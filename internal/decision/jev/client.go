@@ -36,10 +36,12 @@ func (c *Client) SetBaseURL(baseURL string) { c.baseURL = baseURL }
 func (c *Client) SetAPIKey(key string)      { c.apiKey = key }
 
 func (c *Client) resolveBaseURL() string {
-	if c.baseURL != "" {
-		return c.baseURL
+	base := c.baseURL
+	if base == "" {
+		base = "https://openrouter.ai/api"
 	}
-	return "https://api.typesafe.ai"
+	base = strings.TrimRight(base, "/")
+	return strings.TrimSuffix(base, "/v1")
 }
 
 type apiQuestion struct {

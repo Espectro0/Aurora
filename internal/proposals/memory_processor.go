@@ -39,6 +39,10 @@ func NewMemoryProcessor(store memory.MemoryStore, dec decision.Provider, id *ide
 	}
 }
 
+func (p *MemoryProcessor) Journal() *SimpleProcessor {
+	return p.journal
+}
+
 func (p *MemoryProcessor) Process(ctx context.Context, prop Proposal) error {
 	if err := p.journal.Process(ctx, prop); err != nil {
 		return err
