@@ -110,7 +110,7 @@ func (a *Agent) Reply(ctx context.Context, userID string, message string) (strin
 					b.WriteString(fmt.Sprintf("- %s\n", n.Content))
 				}
 				history = append(history, conversation.NewMessage(conversation.System,
-					"Resumen de una conversacion pasada (no uses esto como respuesta a una peticion nueva de datos en vivo)"))
+					fmt.Sprintf("Resumen de una conversacion pasada (no uses esto como respuesta a una peticion nueva de datos en vivo) \n %s", b.String())))
 
 				log.Printf("[agent] memories injected: %d (max score %.2f)", len(kept), kept[0].Similarity)
 			}

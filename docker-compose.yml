@@ -8,6 +8,9 @@ services:
       - "8095:8095"
     volumes:
       - ./data:/app/data
+      - ./mcp.json:/app/mcp.json:ro          
+      - ./cache/npm:/root/.npm
+      - ./cache/uv:/root/.cache/uv         
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

@@ -1,0 +1,25 @@
+{
+    "mcpServers": {
+        "server-name": {
+            "type": "stdio | http | sse (optional -> can be deduced from command/url)",
+
+            "command": "executable (required only -> type=stdio)",
+            "args": ["arg1", "arg2"],
+            "cwd": "/working/dir (optional)",
+            "env": {
+                "VAR": "value | ${VAR_SYSTEM} (optional)"
+            },
+
+            "url": "https://host/mcp (required only -> type=http|sse)",
+            "headers": {
+                "Authorization": "Bearer ${TOKEN} (optional)"
+            },
+            "maxRetries": 3,
+
+            "allow": ["tool_name", "prefix_*"],
+            "confirm": ["create_*", "delete_*"],
+            "timeoutSeconds": 30,
+            "disabled": false
+        }
+    }
+}

@@ -10,7 +10,8 @@ RUN CGO_ENABLED=0 go build -o /out/aurora ./cmd
 
 FROM alpine:3.20
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates nodejs npm python3
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # marco.cornare.gov.co (SIATA/Cornare skills) serves only its leaf certificate
 # and omits the Sectigo intermediate, so clients that don't chase AIA (Go's

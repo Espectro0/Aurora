@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -14,9 +15,11 @@ import (
 	"github.com/Espectro0/AuroraProject/internal/decision/jev"
 	"github.com/Espectro0/AuroraProject/internal/discord"
 	embedopenai "github.com/Espectro0/AuroraProject/internal/embedder/openai"
+	"github.com/Espectro0/AuroraProject/internal/guard"
 	"github.com/Espectro0/AuroraProject/internal/httpclient"
 	"github.com/Espectro0/AuroraProject/internal/identity"
 	"github.com/Espectro0/AuroraProject/internal/llm/openai"
+	"github.com/Espectro0/AuroraProject/internal/mcpclient"
 	"github.com/Espectro0/AuroraProject/internal/memory"
 	"github.com/Espectro0/AuroraProject/internal/memory/api"
 	"github.com/Espectro0/AuroraProject/internal/memory/qdrant"
@@ -24,6 +27,7 @@ import (
 	"github.com/Espectro0/AuroraProject/internal/reflection"
 	"github.com/Espectro0/AuroraProject/internal/skills"
 	"github.com/Espectro0/AuroraProject/internal/skills/calendar"
+	"github.com/Espectro0/AuroraProject/internal/skills/capabilities"
 	"github.com/Espectro0/AuroraProject/internal/skills/clock"
 	"github.com/Espectro0/AuroraProject/internal/skills/cornare"
 	"github.com/Espectro0/AuroraProject/internal/skills/siata"
@@ -85,6 +89,7 @@ func main() {
 		NodeReplaceThreshold:    rules.NodeReplaceThreshold,
 		IdentityChangeThreshold: rules.IdentityChangeThreshold,
 	})
+
 	reflector := reflection.New(codeLLM, decisionClient, propSystem, mem, idCore, reflection.Config{
 		Interval:              rules.ReflectionInterval,
 		MaxHistory:            rules.ReflectionHistory,
@@ -115,6 +120,37 @@ func main() {
 		skillRegistry.Register(calendar.NewGetEvent(calendarClient))
 		skillRegistry.Register(calendar.NewCreateEvent(calendarClient))
 	}
+
+	mcpCfg, err := config.LoadMCP("./mcp.json")
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		log.Printf("[mcp] 'mcp.json' not found, starting without MCP.")
+	case err != nil:
+		log.Printf("[mcp] Invalid config: %s", err)
+	default:
+		for name, s := range mcpCfg.Servers {
+			if s.Err != nil {
+				log.Printf("[mcp] %s disabled: %v", name, s.Err)
+			}
+		}
+		log.Printf("[mcp] starting %d servers", len(mcpCfg.Enabled()))
+
+		mcpManager := mcpclient.NewManager(mcpCfg, skillRegistry)
+		mcpManager.Start(ctx)
+		defer mcpManager.Close()
+	}
+
+	g, err := guard.New("./data/guard.log",
+		guard.NewConfirmPolicy(mcpCfg),
+		guard.NewJevPolicy(decisionClient, false),
+	)
+	if err != nil {
+		log.Fatalf("[guard] %v", err)
+	}
+	defer g.Close()
+
+	skillRegistry.SetGuard(g)
+	skillRegistry.Register(capabilities.New(skillRegistry))
 
 	a := agent.NewAgent(llmClient, idCore, mem, memStore, reflector, skillRegistry)
 
