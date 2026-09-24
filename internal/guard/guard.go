@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/Espectro0/AuroraProject/internal/skills"
@@ -31,6 +32,10 @@ type Call struct {
 	Tool        string
 	ArgsJSON    string
 	UserMessage string
+
+	args       any
+	argsSecret bool
+	argsReady  bool
 }
 type Verdict struct {
 	Decision  Decision
@@ -80,6 +85,7 @@ func (g *Guard) Close() error {
 func (g *Guard) Run(ctx context.Context, s skills.Skill, argsJSON string) (skills.Result, error) {
 	call := describe(s, argsJSON)
 	call.UserMessage = UserMessage(ctx)
+	call.redactedArgs()
 	start := g.now()
 
 	verdict := g.evaluate(ctx, call)
@@ -153,12 +159,13 @@ type Entry struct {
 }
 
 func entry(c Call, v Verdict, start, end time.Time, res skills.Result, err error) Entry {
+	args, _ := c.redactedArgs()
 	e := Entry{
 		Time:        start,
 		Skill:       c.Skill,
 		Server:      c.Server,
 		Tool:        c.Tool,
-		Args:        redactArgs(c.ArgsJSON),
+		Args:        args,
 		Decision:    v.Decision,
 		Reason:      v.Reason,
 		Checks:      v.Details,
@@ -188,84 +195,166 @@ func (g *Guard) write(e Entry) {
 
 const maxArgChars = 500
 
-var secretKeys = []string{"token", "password", "passwd", "secret", "apikey", "api_key", "authorization", "cookie", "credential"}
+// redactWindow bounds how much of a long string argument is redacted for
+// display: only the first maxArgChars runes are kept, and the extra margin
+// lets secrets that start inside the visible part and run past it still be
+// matched whole. Detection (the reported bool) always scans the full string.
+const redactWindow = maxArgChars + 8192
 
-func redactArgs(argsJSON string) any {
+// redactedArgs returns the display form of the call's arguments and whether
+// they carry secrets. The result is computed once and reused by every policy
+// and by the log entry.
+func (c *Call) redactedArgs() (any, bool) {
+	if !c.argsReady {
+		c.args, c.argsSecret = redactArgs(c.ArgsJSON)
+		c.argsReady = true
+	}
+	return c.args, c.argsSecret
+}
+
+func redactArgs(argsJSON string) (any, bool) {
 	argsJSON = strings.TrimSpace(argsJSON)
 	if argsJSON == "" || argsJSON == "{}" || argsJSON == "null" {
-		return nil
+		return nil, false
 	}
 	var v any
 	if err := json.Unmarshal([]byte(argsJSON), &v); err != nil {
-		red, _ := RedactSecrets(argsJSON)
-		return clip(red)
+		return redactString(argsJSON)
 	}
 	return redact(v)
 }
 
-func redact(v any) any {
+// redact returns a copy of v with secret-named fields replaced by "***" and
+// secrets inside strings (keys included) redacted, and reports whether it
+// found any.
+func redact(v any) (any, bool) {
 	switch t := v.(type) {
 	case map[string]any:
+		out := make(map[string]any, len(t))
+		found := false
 		for k, val := range t {
+			rk, keyFound := RedactSecrets(k)
+			found = found || keyFound
 			if isSecret(k) {
-				t[k] = "***"
-			} else {
-				t[k] = redact(val)
+				out[rk] = "***"
+				found = found || (val != nil && val != "")
+				continue
 			}
+			rv, f := redact(val)
+			out[rk] = rv
+			found = found || f
 		}
-		return t
+		return out, found
 	case []any:
-		for i := range t {
-			t[i] = redact(t[i])
+		out := make([]any, len(t))
+		found := false
+		for i, val := range t {
+			rv, f := redact(val)
+			out[i] = rv
+			found = found || f
 		}
-		return t
+		return out, found
 	case string:
-		red, _ := RedactSecrets(t)
-		return clip(red)
+		return redactString(t)
 	default:
-		return v
+		return v, false
 	}
 }
 
+func redactString(s string) (string, bool) {
+	if len(s) <= redactWindow {
+		red, found := RedactSecrets(s)
+		return clip(red), found
+	}
+	found := ContainsSecret(s)
+	red, _ := RedactSecrets(s[:runeOffset(s, redactWindow)])
+	if out := clip(red); len(out) != len(red) {
+		return out, found
+	}
+	return red + "…", found
+}
+
+// secretKeyWords are matched against each word of a field name, and against
+// each pair of adjacent words joined, as a suffix: accessToken, x-api-key,
+// AWS_SECRET_ACCESS_KEY and set_cookie match, max_tokens, tokenizer and
+// secretary don't.
+var secretKeyWords = []string{
+	"password", "passwords", "passwd", "passphrase", "secret", "secrets", "token",
+	"apikey", "privatekey", "authorization", "cookie", "cookies", "credential", "credentials",
+}
+
 func isSecret(key string) bool {
-	k := strings.ToLower(key)
-	for _, s := range secretKeys {
-		if strings.Contains(k, s) {
+	words := keyWords(key)
+	for i, w := range words {
+		if w == "pwd" || hasSecretSuffix(w) {
+			return true
+		}
+		if i > 0 && hasSecretSuffix(words[i-1]+w) {
 			return true
 		}
 	}
 	return false
 }
 
-func clip(s string) string {
-	if utf8.RuneCountInString(s) <= maxArgChars {
-		return s
+func hasSecretSuffix(w string) bool {
+	for _, s := range secretKeyWords {
+		if strings.HasSuffix(w, s) {
+			return true
+		}
 	}
-	return string([]rune(s)[:maxArgChars]) + "…"
+	return false
 }
 
-func argsHaveSecretKeys(argsJSON string) bool {
-	var v any
-	if json.Unmarshal([]byte(argsJSON), &v) != nil {
-		return false
-	}
-	var walk func(any) bool
-	walk = func(v any) bool {
-		switch t := v.(type) {
-		case map[string]any:
-			for k, val := range t {
-				if isSecret(k) || walk(val) {
-					return true
-				}
+// keyWords splits an identifier into lowercase words on non-alphanumeric
+// characters and camelCase boundaries: "userAPIKey_v2" -> user, api, key, v2.
+func keyWords(key string) []string {
+	var words []string
+	rs := []rune(key)
+	start := -1
+	for i, r := range rs {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			if start >= 0 {
+				words = append(words, strings.ToLower(string(rs[start:i])))
+				start = -1
 			}
-		case []any:
-			for _, val := range t {
-				if walk(val) {
-					return true
-				}
+			continue
+		}
+		if start >= 0 && unicode.IsUpper(r) {
+			prev := rs[i-1]
+			nextLower := i+1 < len(rs) && unicode.IsLower(rs[i+1])
+			if unicode.IsLower(prev) || unicode.IsDigit(prev) || (unicode.IsUpper(prev) && nextLower) {
+				words = append(words, strings.ToLower(string(rs[start:i])))
+				start = i
 			}
 		}
-		return false
+		if start < 0 {
+			start = i
+		}
 	}
-	return walk(v)
+	if start >= 0 {
+		words = append(words, strings.ToLower(string(rs[start:])))
+	}
+	return words
+}
+
+func clip(s string) string {
+	if i := runeOffset(s, maxArgChars); i < len(s) {
+		return s[:i] + "…"
+	}
+	return s
+}
+
+// runeOffset returns the byte offset just past the first n runes of s, or
+// len(s) if s is shorter.
+func runeOffset(s string, n int) int {
+	if len(s) <= n {
+		return len(s)
+	}
+	for i := range s {
+		if n == 0 {
+			return i
+		}
+		n--
+	}
+	return len(s)
 }

@@ -117,19 +117,20 @@ func (p *JevPolicy) Check(ctx context.Context, c Call) Verdict {
 
 func state(c Call) (string, bool) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Mensaje del usuario: %s\n", orNone(c.UserMessage))
+	msg, _ := RedactSecrets(c.UserMessage)
+	desc, _ := RedactSecrets(c.Description)
+	args, inArgs := c.redactedArgs()
+	argsJSON, _ := json.Marshal(args)
+
+	fmt.Fprintf(&b, "Mensaje del usuario: %s\n", orNone(msg))
 	if c.Server != "" {
 		fmt.Fprintf(&b, "Herramienta: %s (servidor externo MCP %q)\n", c.Tool, c.Server)
 	} else {
 		fmt.Fprintf(&b, "Herramienta: %s (skill propia de Aurora)\n", c.Skill)
 	}
-	fmt.Fprintf(&b, "Descripción: %s\n", orNone(c.Description))
-	args, _ := json.Marshal(redactArgs(c.ArgsJSON))
-	fmt.Fprintf(&b, "Argumentos: %s", args)
-
-	out, _ := RedactSecrets(b.String())
-	_, inArgs := RedactSecrets(c.ArgsJSON)
-	return out, inArgs || argsHaveSecretKeys(c.ArgsJSON)
+	fmt.Fprintf(&b, "Descripción: %s\n", orNone(desc))
+	fmt.Fprintf(&b, "Argumentos: %s", argsJSON)
+	return b.String(), inArgs
 }
 
 func orNone(s string) string {
