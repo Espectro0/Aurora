@@ -37,10 +37,14 @@ type ToolSkill struct {
 	conn     ConnFunc
 }
 
-func NewToolSkills(server string, tools []*sdk.Tool, conn ConnFunc) []skills.Skill {
+func NewToolSkills(server string, tools []*sdk.Tool, conn ConnFunc, hints map[string]string) []skills.Skill {
 	out := make([]skills.Skill, 0, len(tools))
 	for _, t := range tools {
-		out = append(out, NewToolSkill(server, t, conn))
+		s := NewToolSkill(server, t, conn)
+		if h := strings.TrimSpace(hints[t.Name]); h != "" {
+			s.desc += "\nIMPORTANTE: " + h
+		}
+		out = append(out, s)
 	}
 	return out
 }
@@ -81,6 +85,7 @@ func (s *ToolSkill) Execute(ctx context.Context, argsJSON string) (skills.Result
 			return skills.Result{}, fmt.Errorf("%s: argumentos inválidos: %w", s.name, err)
 		}
 	}
+	args = pruneEmpty(args).(map[string]any)
 
 	conn, err := s.conn()
 	if err != nil {
@@ -216,4 +221,52 @@ func truncate(s string) string {
 	}
 	r := []rune(s)
 	return string(r[:maxResultChars]) + "\n[respuesta recortada]"
+}
+
+func pruneEmpty(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, val := range t {
+			val = pruneEmpty(val)
+			if isEmpty(val) {
+				delete(t, k)
+			} else {
+				t[k] = val
+			}
+		}
+		return t
+	case []any:
+		out := t[:0]
+		for _, val := range t {
+			if val = pruneEmpty(val); !isEmpty(val) {
+				out = append(out, val)
+			}
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+func isEmpty(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return true
+	case string:
+		return t == ""
+	case map[string]any:
+		return len(t) == 0 || allZero(t)
+	case []any:
+		return len(t) == 0
+	}
+	return false
+}
+
+func allZero(m map[string]any) bool {
+	for _, v := range m {
+		if n, ok := v.(float64); !ok || n != 0 {
+			return false
+		}
+	}
+	return true
 }

@@ -97,14 +97,6 @@ func main() {
 		WorthKeepingThreshold: rules.WorthKeepingThreshold,
 	})
 
-	edgesRouter := api.NewRouter(memStore, propSystem.Journal())
-	go func() {
-		log.Println("Edges API server listening on port 8095")
-		if err := http.ListenAndServe(":8095", edgesRouter); err != nil {
-			log.Printf("Edges API server failed: %v", err)
-		}
-	}()
-
 	siataClient := siata.NewClient(httpclient.New(30 * time.Second))
 	cornareClient := cornare.NewClient(httpclient.New(30 * time.Second))
 
@@ -121,6 +113,7 @@ func main() {
 		skillRegistry.Register(calendar.NewCreateEvent(calendarClient))
 	}
 
+	var mcpStatus api.MCPStatus
 	mcpCfg, err := config.LoadMCP("./mcp.json")
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -138,6 +131,7 @@ func main() {
 		mcpManager := mcpclient.NewManager(mcpCfg, skillRegistry)
 		mcpManager.Start(ctx)
 		defer mcpManager.Close()
+		mcpStatus = mcpManager
 	}
 
 	g, err := guard.New("./data/guard.log",
@@ -150,6 +144,15 @@ func main() {
 	defer g.Close()
 
 	skillRegistry.SetGuard(g)
+
+	apiRouter := api.NewRouter(memStore, propSystem.Journal(), g, mcpStatus)
+	go func() {
+		log.Println("API server listening on port 8095")
+		if err := http.ListenAndServe(":8095", apiRouter); err != nil {
+			log.Printf("API server failed: %v", err)
+		}
+	}()
+
 	skillRegistry.Register(capabilities.New(skillRegistry))
 
 	a := agent.NewAgent(llmClient, idCore, mem, memStore, reflector, skillRegistry)

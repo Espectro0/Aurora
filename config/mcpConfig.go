@@ -40,6 +40,8 @@ type McpServer struct {
 	TimeoutSeconds int      `json:"timeoutSeconds,omitempty"`
 	Disabled       bool     `json:"disabled,omitempty"`
 
+	Hints map[string]string `json:"hints,omitempty"`
+
 	Name string `json:"-"` // LoadMCP (NOT LOADED IN JSON)
 	Err  error  `json:"-"`
 }
