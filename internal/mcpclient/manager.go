@@ -146,7 +146,7 @@ func (m *Manager) run(ctx context.Context, name string) {
 }
 
 func (m *Manager) register(name string, conn *Conn) {
-	skipped := m.reg.ReplaceGroup(name, NewToolSkills(name, conn.Tools(), m.connFunc(name)))
+	skipped := m.reg.ReplaceGroup(name, NewToolSkills(name, conn.Tools(), m.connFunc(name), conn.Cfg.Hints))
 	if len(skipped) > 0 {
 		log.Printf("[mcp] %s: tools skipped because it ain't the same name: %v", name, skipped)
 	}

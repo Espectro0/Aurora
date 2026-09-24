@@ -3,7 +3,9 @@ package guard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,23 +49,29 @@ var _ skills.Guard = (*Guard)(nil)
 type Guard struct {
 	policies []Policy
 
-	mu  sync.Mutex
-	out *os.File
-	now func() time.Time
+	mu   sync.Mutex
+	out  *os.File
+	now  func() time.Time
+	hist *history
 }
 
 func New(logPath string, policies ...Policy) (*Guard, error) {
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		return nil, fmt.Errorf("[guard] Create File: %w", err)
 	}
+	hist := newHistory()
+	if err := hist.load(logPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("[guard] load history: %v", err)
+	}
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("[guard] Open log: %w", err)
 	}
-	return &Guard{policies: policies, out: f, now: time.Now}, nil
+	return &Guard{policies: policies, out: f, now: time.Now, hist: hist}, nil
 }
 
 func (g *Guard) Close() error {
+	g.hist.close()
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.out.Close()
@@ -128,7 +136,8 @@ func describe(s skills.Skill, argsJSON string) Call {
 	return c
 }
 
-type logEntry struct {
+// Entry is one guarded skill call, as written to the log and served by the API.
+type Entry struct {
 	Time        time.Time `json:"time"`
 	Skill       string    `json:"skill"`
 	Server      string    `json:"server,omitempty"`
@@ -143,8 +152,8 @@ type logEntry struct {
 	Attachments int       `json:"attachments,omitempty"`
 }
 
-func entry(c Call, v Verdict, start, end time.Time, res skills.Result, err error) logEntry {
-	e := logEntry{
+func entry(c Call, v Verdict, start, end time.Time, res skills.Result, err error) Entry {
+	e := Entry{
 		Time:        start,
 		Skill:       c.Skill,
 		Server:      c.Server,
@@ -166,7 +175,8 @@ func entry(c Call, v Verdict, start, end time.Time, res skills.Result, err error
 	return e
 }
 
-func (g *Guard) write(e logEntry) {
+func (g *Guard) write(e Entry) {
+	g.hist.add(e)
 	b, err := json.Marshal(e)
 	if err != nil {
 		return
