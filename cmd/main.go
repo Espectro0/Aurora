@@ -1,0 +1,197 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/Espectro0/AuroraProject/config"
+	"github.com/Espectro0/AuroraProject/internal/agent"
+	"github.com/Espectro0/AuroraProject/internal/decision/jev"
+	"github.com/Espectro0/AuroraProject/internal/discord"
+	embedopenai "github.com/Espectro0/AuroraProject/internal/embedder/openai"
+	"github.com/Espectro0/AuroraProject/internal/guard"
+	"github.com/Espectro0/AuroraProject/internal/httpclient"
+	"github.com/Espectro0/AuroraProject/internal/identity"
+	"github.com/Espectro0/AuroraProject/internal/llm/openai"
+	"github.com/Espectro0/AuroraProject/internal/mcpclient"
+	"github.com/Espectro0/AuroraProject/internal/memory"
+	"github.com/Espectro0/AuroraProject/internal/memory/api"
+	"github.com/Espectro0/AuroraProject/internal/memory/qdrant"
+	"github.com/Espectro0/AuroraProject/internal/proposals"
+	"github.com/Espectro0/AuroraProject/internal/reflection"
+	"github.com/Espectro0/AuroraProject/internal/skills"
+	"github.com/Espectro0/AuroraProject/internal/skills/calendar"
+	"github.com/Espectro0/AuroraProject/internal/skills/capabilities"
+	"github.com/Espectro0/AuroraProject/internal/skills/clock"
+	"github.com/Espectro0/AuroraProject/internal/skills/cornare"
+	"github.com/Espectro0/AuroraProject/internal/skills/siata"
+	"github.com/Espectro0/AuroraProject/internal/telegram"
+	"github.com/Espectro0/AuroraProject/internal/voice"
+)
+
+func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return
+	}
+
+	idCore := identity.New("data/aurora.json")
+	id := idCore.Get()
+	rules := id.MemoryUsageRules
+
+	reflectionModel := cfg.OpenRouterReflectionModel
+	if reflectionModel == "" {
+		reflectionModel = cfg.OpenRouterChatModel
+	}
+
+	llmClient := openai.New(cfg.OpenRouterChatModel, time.Duration(id.LLM.ChatTimeoutSeconds)*time.Second)
+	llmClient.SetMaxTokens(2048)
+	llmClient.SetBaseURL(cfg.OpenRouterBaseURL)
+	llmClient.SetAPIKey(cfg.OpenRouterAPIKey)
+
+	codeLLM := openai.New(reflectionModel, time.Duration(id.LLM.ReflectionTimeoutSeconds)*time.Second)
+	codeLLM.SetMaxTokens(8192)
+	codeLLM.SetBaseURL(cfg.OpenRouterBaseURL)
+	codeLLM.SetAPIKey(cfg.OpenRouterAPIKey)
+
+	decisionClient := jev.New(cfg.OpenRouterDecisionModel, 15*time.Second)
+	decisionClient.SetBaseURL(cfg.OpenRouterBaseURL)
+	decisionClient.SetAPIKey(cfg.OpenRouterAPIKey)
+
+	emb := embedopenai.New(cfg.OpenRouterEmbedModel, time.Duration(id.LLM.EmbedderTimeoutSeconds)*time.Second)
+	emb.SetBaseURL(cfg.OpenRouterBaseURL)
+	emb.SetAPIKey(cfg.OpenRouterAPIKey)
+	memStore, err := qdrant.NewStore(qdrant.Config{
+		BaseURL:    cfg.QdrantURL,
+		APIKey:     cfg.QdrantAPIKey,
+		Collection: cfg.QdrantCollection,
+		EdgesPath:  "data/aurora.edges.json",
+	}, emb)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer memStore.Close()
+	memStore.SetClusterThreshold(rules.ClusterThreshold)
+
+	mem := memory.NewInMemory()
+	propSystem := proposals.NewMemoryProcessor(memStore, decisionClient, idCore, proposals.Config{
+		JournalPath:             "data/journal.md",
+		SimilarityThreshold:     rules.SemanticRelevanceThreshold,
+		SameEntityThreshold:     rules.SameEntityThreshold,
+		NodeReplaceThreshold:    rules.NodeReplaceThreshold,
+		IdentityChangeThreshold: rules.IdentityChangeThreshold,
+	})
+
+	reflector := reflection.New(codeLLM, decisionClient, propSystem, mem, idCore, reflection.Config{
+		Interval:              rules.ReflectionInterval,
+		MaxHistory:            rules.ReflectionHistory,
+		GateThreshold:         rules.ReflectionGateThreshold,
+		WorthKeepingThreshold: rules.WorthKeepingThreshold,
+	})
+
+	siataClient := siata.NewClient(httpclient.New(30 * time.Second))
+	cornareClient := cornare.NewClient(httpclient.New(30 * time.Second))
+
+	skillRegistry := skills.NewRegistry()
+	skillRegistry.Register(clock.New())
+	skillRegistry.Register(siata.New(siataClient))
+	skillRegistry.Register(cornare.New(cornareClient))
+
+	if cfg.ApirocAPIKey != "" && cfg.ApirocEndUserAccountID != "" {
+		calendarClient := calendar.NewClient(cfg.ApirocBaseURL, cfg.ApirocAPIKey, cfg.ApirocEndUserAccountID)
+		skillRegistry.Register(calendar.NewListCalendars(calendarClient))
+		skillRegistry.Register(calendar.NewListEvents(calendarClient))
+		skillRegistry.Register(calendar.NewGetEvent(calendarClient))
+		skillRegistry.Register(calendar.NewCreateEvent(calendarClient))
+	}
+
+	var mcpStatus api.MCPStatus
+	mcpCfg, err := config.LoadMCP("./mcp.json")
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		log.Printf("[mcp] 'mcp.json' not found, starting without MCP.")
+	case err != nil:
+		log.Printf("[mcp] Invalid config: %s", err)
+	default:
+		for name, s := range mcpCfg.Servers {
+			if s.Err != nil {
+				log.Printf("[mcp] %s disabled: %v", name, s.Err)
+			}
+		}
+		log.Printf("[mcp] starting %d servers", len(mcpCfg.Enabled()))
+
+		mcpManager := mcpclient.NewManager(mcpCfg, skillRegistry)
+		mcpManager.Start(ctx)
+		defer mcpManager.Close()
+		mcpStatus = mcpManager
+	}
+
+	g, err := guard.New("./data/guard.log",
+		guard.NewSandboxPolicy(mcpCfg),
+		guard.NewConfirmPolicy(mcpCfg),
+		guard.NewJevPolicy(decisionClient, false),
+	)
+	if err != nil {
+		log.Fatalf("[guard] %v", err)
+	}
+	defer g.Close()
+	g.SetConfirmTimeout(func() time.Duration {
+		return time.Duration(idCore.Get().Guard.ConfirmTimeoutSeconds) * time.Second
+	})
+
+	skillRegistry.SetGuard(g)
+
+	skillRegistry.Register(capabilities.New(skillRegistry))
+
+	a := agent.NewAgent(llmClient, idCore, mem, memStore, reflector, skillRegistry)
+
+	var voiceHandler *api.VoiceHandler
+	if cfg.APIToken != "" {
+		voiceClient := voice.New(voice.Config{
+			BaseURL:  cfg.OpenRouterBaseURL,
+			APIKey:   cfg.OpenRouterAPIKey,
+			STTModel: cfg.OpenRouterSTTModel,
+			TTSModel: cfg.OpenRouterTTSModel,
+			Voice:    cfg.OpenRouterTTSVoice,
+			Language: cfg.VoiceLanguage,
+		}, 60*time.Second)
+		voiceHandler = api.NewVoiceHandler(a, voiceClient, cfg.APIToken)
+	} else {
+		log.Println("[voice] AURORA_API_TOKEN not set, voice endpoint disabled")
+	}
+
+	apiRouter := api.NewRouter(memStore, propSystem.Journal(), g, mcpStatus, voiceHandler)
+	go func() {
+		log.Println("API server listening on port 8095")
+		if err := http.ListenAndServe(":8095", apiRouter); err != nil {
+			log.Printf("API server failed: %v", err)
+		}
+	}()
+
+	discordBot := discord.NewBot(cfg.DiscordToken, a, cfg.AllowedDiscordUserIDs)
+	if err := discordBot.Run(ctx); err != nil {
+		log.Fatal(err)
+	}
+	log.Println("Aurora is running on Discord...")
+
+	if cfg.TelegramToken != "" {
+		telegramBot := telegram.NewBot(cfg.TelegramToken, a, cfg.AllowedTelegramUserIDs)
+		if err := telegramBot.Run(ctx); err != nil {
+			log.Fatal(err)
+		}
+		log.Println("Aurora is running on Telegram...")
+	}
+
+	<-ctx.Done()
+	log.Println("Aurora's shutting down...")
+	a.Wait()
+}

@@ -1,0 +1,38 @@
+FROM golang:1.26-alpine AS build
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/aurora ./cmd
+
+FROM alpine:3.22
+
+RUN apk add --no-cache ca-certificates nodejs npm python3 git \
+     cairo pango jpeg giflib librsvg pixman \
+     && apk add --no-cache --virtual .build-deps \
+     build-base pkgconf cairo-dev pango-dev jpeg-dev giflib-dev librsvg-dev pixman-dev \
+     && node --version \
+     && npm install -g --omit=optional awesome-mineflayer-mcp \
+     && apk del .build-deps
+
+RUN git clone --depth 1 https://github.com/marcelmarais/spotify-mcp-server /opt/spotify-mcp \
+     && cd /opt/spotify-mcp && npm ci && npm run build && npm prune --omit=dev \
+     && ln -s /app/data/spotify-config.json /opt/spotify-mcp/spotify-config.json
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# marco.cornare.gov.co (SIATA/Cornare skills) serves only its leaf certificate
+# and omits the Sectigo intermediate, so clients that don't chase AIA (Go's
+# http.Client included) fail with "certificate signed by unknown authority".
+# Install the missing intermediate so the chain resolves to a root we already trust.
+COPY certs/sectigo-public-server-authentication-ca-dv-r36.pem /usr/local/share/ca-certificates/sectigo-public-server-authentication-ca-dv-r36.crt
+RUN update-ca-certificates
+
+WORKDIR /app
+COPY --from=build /out/aurora ./aurora
+
+EXPOSE 8095
+
+ENTRYPOINT ["./aurora"]

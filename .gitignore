@@ -1,0 +1,10 @@
+CLAUDE.md
+certs/
+tools/
+data/
+cache/
+.env
+.claude
+.git
+mcp.json
+viaproxy/
