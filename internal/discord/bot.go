@@ -10,23 +10,21 @@ import (
 )
 
 type Bot struct {
-	ctx          context.Context
-	token        string
-	agent        agent.Service
-	client       *bot.Client
-	allowedUsers map[string]bool
-	pending      *guard.Pending
+	ctx         context.Context
+	token       string
+	agent       agent.Service
+	client      *bot.Client
+	ownerID     string
+	homeGuildID string
+	pending     *guard.Pending
 }
 
-func NewBot(token string, agent agent.Service, allowedUserIDs []string) *Bot {
-	allowed := make(map[string]bool, len(allowedUserIDs))
-	for _, id := range allowedUserIDs {
-		allowed[id] = true
-	}
+func NewBot(token string, agent agent.Service, ownerID, homeGuildID string) *Bot {
 	return &Bot{
-		token:        token,
-		agent:        agent,
-		allowedUsers: allowed,
-		pending:      guard.NewPending(),
+		token:       token,
+		agent:       agent,
+		ownerID:     ownerID,
+		homeGuildID: homeGuildID,
+		pending:     guard.NewPending(),
 	}
 }

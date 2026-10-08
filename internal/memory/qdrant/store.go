@@ -133,7 +133,12 @@ func (s *Store) GetNode(ctx context.Context, id string) (memory.Node, error) {
 	return pointToNode(points[0]), nil
 }
 
-func (s *Store) SearchNodes(ctx context.Context, query string, limit int) ([]memory.Node, error) {
+func (s *Store) SearchNodes(ctx context.Context, query string, limit int, scope memory.Scope) ([]memory.Node, error) {
+	filter, ok := withScope(nil, scope)
+	if !ok {
+		return nil, nil
+	}
+
 	count, err := s.client.countPoints(ctx, s.collection)
 	if err != nil {
 		return nil, fmt.Errorf("qdrant: count: %w", err)
@@ -150,7 +155,7 @@ func (s *Store) SearchNodes(ctx context.Context, query string, limit int) ([]mem
 		return nil, fmt.Errorf("qdrant: embed: %w", err)
 	}
 
-	points, err := s.client.searchPoints(ctx, s.collection, vec, limit)
+	points, err := s.client.searchPoints(ctx, s.collection, vec, limit, filter)
 	if err != nil {
 		return nil, fmt.Errorf("qdrant: search: %w", err)
 	}
@@ -226,7 +231,7 @@ func (s *Store) GetNeighbors(ctx context.Context, nodeID string, limit int) ([]m
 	return nodes, nil
 }
 
-func (s *Store) FindClusters(ctx context.Context, minClusterSize int) ([][]memory.Node, error) {
+func (s *Store) FindClusters(ctx context.Context, minClusterSize int, scope memory.Scope) ([][]memory.Node, error) {
 	count, err := s.client.countPoints(ctx, s.collection)
 	if err != nil {
 		return nil, fmt.Errorf("qdrant: count: %w", err)
@@ -235,13 +240,12 @@ func (s *Store) FindClusters(ctx context.Context, minClusterSize int) ([][]memor
 		return nil, nil
 	}
 
-	filter := map[string]any{
-		"must": []map[string]any{
-			{"key": "type", "match": map[string]any{"value": string(memory.NodeConcept)}},
-		},
+	filter, ok := withScope(typeFilter(memory.NodeConcept), scope)
+	if !ok {
+		return nil, nil
 	}
 
-	points, err := s.client.scrollPoints(ctx, s.collection, filter)
+	points, err := s.client.scrollPoints(ctx, s.collection, filter, true)
 	if err != nil {
 		return nil, fmt.Errorf("qdrant: cluster scroll: %w", err)
 	}
@@ -305,31 +309,57 @@ func (s *Store) EdgesJSON() ([]byte, error) {
 	return json.MarshalIndent(s.edges, "", " ")
 }
 
-func (s *Store) LatestedReflections(ctx context.Context) (memory.Node, error) {
-	s.mu.RLock()
-	sourceIDs := make([]string, 0, len(s.edges))
-	for id := range s.edges {
-		sourceIDs = append(sourceIDs, id)
+func (s *Store) LatestedReflections(ctx context.Context, scope memory.Scope) (memory.Node, error) {
+	filter, ok := withScope(typeFilter(memory.NodeReflection), scope)
+	if !ok {
+		return memory.Node{}, nil
 	}
-	s.mu.RUnlock()
+
+	points, err := s.client.scrollPoints(ctx, s.collection, filter, false)
+	if err != nil {
+		return memory.Node{}, fmt.Errorf("qdrant: reflection scroll: %w", err)
+	}
 
 	var best memory.Node
-	found := false
-	for _, id := range sourceIDs {
-		node, err := s.GetNode(ctx, id)
-		if err != nil {
-			continue
-		}
-		if node.Type != memory.NodeReflection {
-			continue
-		}
-		if !found || node.CreatedAt.After(best.CreatedAt) {
+	for _, p := range points {
+		if node := pointToNode(p); node.CreatedAt.After(best.CreatedAt) {
 			best = node
-			found = true
 		}
 	}
 
 	return best, nil
+}
+
+func typeFilter(t memory.NodeType) map[string]any {
+	return map[string]any{
+		"must": []map[string]any{
+			{"key": "type", "match": map[string]any{"value": string(t)}},
+		},
+	}
+}
+
+func withScope(filter map[string]any, scope memory.Scope) (map[string]any, bool) {
+	if scope.All {
+		return filter, true
+	}
+
+	var should []map[string]any
+	if scope.Owner != "" {
+		should = append(should, map[string]any{"key": "owner", "match": map[string]any{"value": scope.Owner}})
+	}
+	if scope.Shared {
+		should = append(should, map[string]any{"is_empty": map[string]any{"key": "owner"}})
+	}
+	if len(should) == 0 {
+		return nil, false
+	}
+
+	out := make(map[string]any, len(filter)+1)
+	for k, v := range filter {
+		out[k] = v
+	}
+	out["should"] = should
+	return out, true
 }
 
 func (s *Store) Close() error {
@@ -371,6 +401,9 @@ func nodeToPayload(n memory.Node) map[string]any {
 		"content":    n.Content,
 		"created_at": n.CreatedAt.Format(time.RFC3339),
 	}
+	if n.Owner != "" {
+		payload["owner"] = n.Owner
+	}
 	if n.Metadata != nil {
 		payload["metadata"] = n.Metadata
 	}
@@ -385,6 +418,9 @@ func pointToNode(p point) memory.Node {
 	}
 	if c, ok := p.Payload["content"].(string); ok {
 		n.Content = c
+	}
+	if o, ok := p.Payload["owner"].(string); ok {
+		n.Owner = o
 	}
 	if m, ok := p.Payload["metadata"].(map[string]any); ok {
 		n.Metadata = m
@@ -411,4 +447,155 @@ func cosine(a, b []float32) float64 {
 		return 0
 	}
 	return dot / (math.Sqrt(na) * math.Sqrt(nb))
+}
+
+func (s *Store) ListNodes(ctx context.Context) ([]memory.Node, error) {
+	points, err := s.client.scrollPoints(ctx, s.collection, nil, false)
+	if err != nil {
+		return nil, fmt.Errorf("qdrant: list scroll: %w", err)
+	}
+
+	nodes := make([]memory.Node, 0, len(points))
+	for _, p := range points {
+		nodes = append(nodes, pointToNode(p))
+	}
+	return nodes, nil
+}
+
+func (s *Store) NodesByType(ctx context.Context, t memory.NodeType) ([]memory.Node, error) {
+	points, err := s.client.scrollPoints(ctx, s.collection, typeFilter(t), false)
+	if err != nil {
+		return nil, fmt.Errorf("qdrant: type scroll: %w", err)
+	}
+
+	nodes := make([]memory.Node, 0, len(points))
+	for _, p := range points {
+		nodes = append(nodes, pointToNode(p))
+	}
+	return nodes, nil
+}
+
+func (s *Store) FindDuplicates(ctx context.Context, threshold float64) ([][]memory.Node, error) {
+	points, err := s.client.scrollPoints(ctx, s.collection, nil, true)
+	if err != nil {
+		return nil, fmt.Errorf("qdrant: duplicates scroll: %w", err)
+	}
+
+	assigned := make([]bool, len(points))
+	var groups [][]memory.Node
+
+	for i := range points {
+		ni := pointToNode(points[i])
+		ti := ni.Type
+		if assigned[i] || !isEntity(ti) {
+			continue
+		}
+		assigned[i] = true
+
+		group := []memory.Node{ni}
+		for j := i + 1; j < len(points); j++ {
+			if assigned[j] {
+				continue
+			}
+			nj := pointToNode(points[j])
+			if nj.Type != ti || nj.Owner != ni.Owner {
+				continue
+			}
+			if sim := cosine(points[i].Vector, points[j].Vector); sim >= threshold {
+				assigned[j] = true
+				nj.Similarity = sim
+				group = append(group, nj)
+			}
+		}
+
+		if len(group) > 1 {
+			groups = append(groups, group)
+		}
+	}
+
+	return groups, nil
+}
+
+func isEntity(t memory.NodeType) bool {
+	switch t {
+	case memory.NodePerson, memory.NodeConcept, memory.NodeEvent, memory.NodeProject, memory.NodeInterest:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Store) SetMetadata(ctx context.Context, id string, metadata map[string]any) error {
+	if err := s.client.setPayload(ctx, s.collection, id, map[string]any{"metadata": metadata}); err != nil {
+		return fmt.Errorf("qdrant: set payload: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) SetOwner(ctx context.Context, id string, owner string) error {
+	if owner == "" {
+		return fmt.Errorf("qdrant: set owner: empty owner")
+	}
+	if err := s.client.setPayload(ctx, s.collection, id, map[string]any{"owner": owner}); err != nil {
+		return fmt.Errorf("qdrant: set payload: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) DeleteNode(ctx context.Context, id string) error {
+	if err := s.client.deletePoints(ctx, s.collection, []string{id}); err != nil {
+		return fmt.Errorf("qdrant: delete: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.edges, id)
+	for src, edges := range s.edges {
+		kept := edges[:0]
+		for _, e := range edges {
+			if e.TargetID != id {
+				kept = append(kept, e)
+			}
+		}
+		if len(kept) == 0 {
+			delete(s.edges, src)
+		} else {
+			s.edges[src] = kept
+		}
+	}
+
+	return s.saveEdges()
+}
+
+func (s *Store) RewireEdges(ctx context.Context, fromID, toID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	type key struct {
+		src, dst string
+		t        memory.EdgeType
+	}
+	seen := make(map[key]bool)
+	rewired := make(map[string][]memory.Edge, len(s.edges))
+
+	for _, edges := range s.edges {
+		for _, e := range edges {
+			if e.SourceID == fromID {
+				e.SourceID = toID
+			}
+			if e.TargetID == fromID {
+				e.TargetID = toID
+			}
+			k := key{e.SourceID, e.TargetID, e.Type}
+			if e.SourceID == e.TargetID || seen[k] {
+				continue
+			}
+			seen[k] = true
+			rewired[e.SourceID] = append(rewired[e.SourceID], e)
+		}
+	}
+
+	s.edges = rewired
+	return s.saveEdges()
 }

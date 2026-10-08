@@ -13,6 +13,10 @@ import (
 
 const maxMessageLen = 2000
 
+var userMentionsOnly = ddiscord.AllowedMentions{
+	Parse: []ddiscord.AllowedMentionType{ddiscord.AllowedMentionTypeUsers},
+}
+
 func (b *Bot) sendMessage(e *events.MessageCreate, content string) {
 	chunks := chunkText(content, maxMessageLen)
 	if len(chunks) == 0 {
@@ -35,7 +39,7 @@ func (b *Bot) sendMessage(e *events.MessageCreate, content string) {
 }
 
 func (b *Bot) sendChunk(e *events.MessageCreate, content string) {
-	if _, err := e.Client().Rest.CreateMessage(e.ChannelID, ddiscord.MessageCreate{Content: content}); err != nil {
+	if _, err := e.Client().Rest.CreateMessage(e.ChannelID, ddiscord.MessageCreate{Content: content, AllowedMentions: &userMentionsOnly}); err != nil {
 		log.Printf("error sending message: %v", err)
 	}
 }

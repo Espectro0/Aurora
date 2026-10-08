@@ -30,8 +30,17 @@ type Config struct {
 	QdrantAPIKey     string
 	QdrantCollection string
 
-	AllowedDiscordUserIDs  []string
+	// DiscordOwnerID is the only Discord user Aurora treats as her owner;
+	// anyone else can talk to her but without skills.
+	DiscordOwnerID string
+	// DiscordHomeGuildID is the only server where the owner doesn't need to
+	// mention Aurora; empty means every server.
+	DiscordHomeGuildID     string
 	AllowedTelegramUserIDs []string
+	// OwnerUniversalID owns the owner's private long-term memories on every
+	// platform (Discord owner, Telegram whitelist, panel voice), so they share
+	// one bucket instead of one per platform.
+	OwnerUniversalID string
 
 	ApirocAPIKey           string
 	ApirocBaseURL          string
@@ -61,8 +70,10 @@ func LoadConfig() (*Config, error) {
 		QdrantAPIKey:     getenv("QDRANT_API_KEY", ""),
 		QdrantCollection: getenv("QDRANT_COLLECTION", "aurora_memories"),
 
-		AllowedDiscordUserIDs:  getenvList("ALLOWED_DISCORD_USER_ID"),
+		DiscordOwnerID:         getenv("DISCORD_OWNER_ID", ""),
+		DiscordHomeGuildID:     getenv("DISCORD_HOME_GUILD_ID", ""),
 		AllowedTelegramUserIDs: getenvList("ALLOWED_TELEGRAM_USER_ID"),
+		OwnerUniversalID:       getenv("OWNER_UNIVERSAL_ID", "owner"),
 
 		ApirocAPIKey:           getenv("APIROC_API_KEY", ""),
 		ApirocBaseURL:          getenv("APIROC_BASE_URL", "https://api.apiroc.com/api/v1"),

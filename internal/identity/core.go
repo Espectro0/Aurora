@@ -107,6 +107,8 @@ func Default() *IdentityCore {
 			SameEntityThreshold:        0.7,
 			NodeReplaceThreshold:       0.8,
 			IdentityChangeThreshold:    0.85,
+			CuriosityThreshold:         0.6,
+			CuriosityCooldownHours:     24,
 		},
 		LLM: LLMConfig{
 			ChatTimeoutSeconds:       60,
@@ -115,6 +117,21 @@ func Default() *IdentityCore {
 		},
 		Guard: GuardConfig{
 			ConfirmTimeoutSeconds: 120,
+		},
+		Sleep: SleepConfig{
+			Hour:                  3,
+			MergeThreshold:        0.92,
+			DecayHalfLifeDays:     30,
+			RecallBoost:           0.1,
+			ForgetThreshold:       0.15,
+			ForgetMinAgeDays:      14,
+			MaxInterests:          5,
+			TimeoutMinutes:        20,
+			MaxExplorations:       3,
+			ExploreCooldownDays:   7,
+			MaxSyntheses:          5,
+			SynthesisThreshold:    0.6,
+			SynthesisCooldownDays: 7,
 		},
 	}
 }
@@ -156,6 +173,12 @@ func (i *IdentityCore) applyDefaults() {
 	if i.MemoryUsageRules.IdentityChangeThreshold == 0 {
 		i.MemoryUsageRules.IdentityChangeThreshold = 0.85
 	}
+	if i.MemoryUsageRules.CuriosityThreshold == 0 {
+		i.MemoryUsageRules.CuriosityThreshold = 0.6
+	}
+	if i.MemoryUsageRules.CuriosityCooldownHours == 0 {
+		i.MemoryUsageRules.CuriosityCooldownHours = 24
+	}
 	if i.LLM.ChatTimeoutSeconds == 0 {
 		i.LLM.ChatTimeoutSeconds = 60
 	}
@@ -167,5 +190,44 @@ func (i *IdentityCore) applyDefaults() {
 	}
 	if i.Guard.ConfirmTimeoutSeconds == 0 {
 		i.Guard.ConfirmTimeoutSeconds = 120
+	}
+	if i.Sleep.Hour < 0 || i.Sleep.Hour > 23 {
+		i.Sleep.Hour = 3
+	}
+	if i.Sleep.MergeThreshold == 0 {
+		i.Sleep.MergeThreshold = 0.92
+	}
+	if i.Sleep.DecayHalfLifeDays == 0 {
+		i.Sleep.DecayHalfLifeDays = 30
+	}
+	if i.Sleep.RecallBoost == 0 {
+		i.Sleep.RecallBoost = 0.1
+	}
+	if i.Sleep.ForgetThreshold == 0 {
+		i.Sleep.ForgetThreshold = 0.15
+	}
+	if i.Sleep.ForgetMinAgeDays == 0 {
+		i.Sleep.ForgetMinAgeDays = 14
+	}
+	if i.Sleep.MaxInterests == 0 {
+		i.Sleep.MaxInterests = 5
+	}
+	if i.Sleep.TimeoutMinutes == 0 {
+		i.Sleep.TimeoutMinutes = 20
+	}
+	if i.Sleep.MaxExplorations == 0 {
+		i.Sleep.MaxExplorations = 3
+	}
+	if i.Sleep.ExploreCooldownDays == 0 {
+		i.Sleep.ExploreCooldownDays = 7
+	}
+	if i.Sleep.MaxSyntheses == 0 {
+		i.Sleep.MaxSyntheses = 5
+	}
+	if i.Sleep.SynthesisThreshold == 0 {
+		i.Sleep.SynthesisThreshold = 0.6
+	}
+	if i.Sleep.SynthesisCooldownDays == 0 {
+		i.Sleep.SynthesisCooldownDays = 7
 	}
 }

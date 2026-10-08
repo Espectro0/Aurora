@@ -52,6 +52,7 @@ func (p *MemoryProcessor) Process(ctx context.Context, prop Proposal) error {
 		ID:        prop.ReflectionID,
 		Type:      memory.NodeReflection,
 		Content:   prop.Summary,
+		Owner:     prop.Owner,
 		Metadata:  map[string]any{"reflection_id": prop.ReflectionID},
 		CreatedAt: prop.Timestamp,
 	}
@@ -78,7 +79,11 @@ func (p *MemoryProcessor) Process(ctx context.Context, prop Proposal) error {
 
 	idByLabel := make(map[string]string, len(dedup))
 	for _, np := range dedup {
-		target, err := p.ensureNode(ctx, np, prop.Timestamp)
+		owner := prop.Owner
+		if np.Shared {
+			owner = ""
+		}
+		target, err := p.ensureNode(ctx, np, owner, prop.Timestamp)
 		if err != nil {
 			return err
 		}
@@ -176,10 +181,10 @@ func resolveEdgeLabel(label string, idByLabel map[string]string) (string, bool) 
 	return id, ok
 }
 
-func (p *MemoryProcessor) ensureNode(ctx context.Context, np NodeProp, ts time.Time) (memory.Node, error) {
+func (p *MemoryProcessor) ensureNode(ctx context.Context, np NodeProp, owner string, ts time.Time) (memory.Node, error) {
 	label := normalizeLabel(np.Type, np.Label)
 
-	results, err := p.store.SearchNodes(ctx, label, 5)
+	results, err := p.store.SearchNodes(ctx, label, 5, memory.OwnedBy(owner))
 	if err != nil {
 		return memory.Node{}, fmt.Errorf("memory: search: %w", err)
 	}
@@ -224,6 +229,7 @@ func (p *MemoryProcessor) ensureNode(ctx context.Context, np NodeProp, ts time.T
 		ID:        uuid.New().String(),
 		Type:      memory.NodeType(np.Type),
 		Content:   label + ": " + np.Content,
+		Owner:     owner,
 		CreatedAt: ts,
 	}
 	if np.Importance != nil {
@@ -234,7 +240,7 @@ func (p *MemoryProcessor) ensureNode(ctx context.Context, np NodeProp, ts time.T
 		return memory.Node{}, fmt.Errorf("memory: node: %w", err)
 	}
 
-	log.Printf("[memory] created %s node %q", np.Type, label)
+	log.Printf("[memory] created %s node %q (owner %q)", np.Type, label, owner)
 	return node, nil
 }
 
@@ -260,7 +266,10 @@ var nodeVerdicts = map[string]string{
 	nodeDifferent:   "es una entidad distinta",
 }
 
-const maxFactsPerNode = 3
+const (
+	maxFactsPerNode       = 3
+	maxSharedFactsPerNode = 8
+)
 
 func (p *MemoryProcessor) compareNode(ctx context.Context, np NodeProp, existing memory.Node) (string, error) {
 	if p.decision == nil {
@@ -329,8 +338,12 @@ func mergeNode(existing memory.Node, label string, np NodeProp, verdict string, 
 		facts = []string{np.Content}
 	default:
 		facts = append(facts, np.Content)
-		if len(facts) > maxFactsPerNode {
-			facts = facts[len(facts)-maxFactsPerNode:]
+		limit := maxFactsPerNode
+		if existing.Owner == "" {
+			limit = maxSharedFactsPerNode
+		}
+		if len(facts) > limit {
+			facts = facts[len(facts)-limit:]
 		}
 	}
 
