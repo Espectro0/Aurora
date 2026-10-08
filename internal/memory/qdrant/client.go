@@ -130,11 +130,14 @@ func (c *restClient) retrievePoints(ctx context.Context, collection string, ids 
 	return result.Result, nil
 }
 
-func (c *restClient) searchPoints(ctx context.Context, collection string, vector []float32, limit int) ([]point, error) {
+func (c *restClient) searchPoints(ctx context.Context, collection string, vector []float32, limit int, filter map[string]any) ([]point, error) {
 	body := map[string]any{
 		"vector":       vector,
 		"limit":        limit,
 		"with_payload": true,
+	}
+	if filter != nil {
+		body["filter"] = filter
 	}
 
 	var result struct {
@@ -146,16 +149,18 @@ func (c *restClient) searchPoints(ctx context.Context, collection string, vector
 	return result.Result, nil
 }
 
-func (c *restClient) scrollPoints(ctx context.Context, collection string, filter map[string]any) ([]point, error) {
+func (c *restClient) scrollPoints(ctx context.Context, collection string, filter map[string]any, withVector bool) ([]point, error) {
 	var all []point
 	var offset any
 
 	for {
 		body := map[string]any{
-			"filter":       filter,
 			"limit":        256,
-			"with_vector":  true,
+			"with_vector":  withVector,
 			"with_payload": true,
+		}
+		if filter != nil {
+			body["filter"] = filter
 		}
 		if offset != nil {
 			body["offset"] = offset
@@ -194,4 +199,19 @@ func (c *restClient) countPoints(ctx context.Context, collection string) (int, e
 		return 0, err
 	}
 	return result.Result.Count, nil
+}
+
+func (c *restClient) setPayload(ctx context.Context, collection, id string, payload map[string]any) error {
+	body := map[string]any{
+		"payload": payload,
+		"points":  []string{id},
+	}
+	_, err := c.do(ctx, http.MethodPost, "/collections/"+collection+"/points/payload", body, nil)
+	return err
+}
+
+func (c *restClient) deletePoints(ctx context.Context, collection string, ids []string) error {
+	body := map[string]any{"points": ids}
+	_, err := c.do(ctx, http.MethodPost, "/collections/"+collection+"/points/delete", body, nil)
+	return err
 }

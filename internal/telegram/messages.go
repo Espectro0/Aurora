@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Espectro0/AuroraProject/internal/conversation"
 	"github.com/Espectro0/AuroraProject/internal/guard"
 )
 
@@ -28,7 +29,13 @@ func (b *Bot) handleMessage(m message) {
 		return
 	}
 
-	ctx := guard.WithConfirmer(b.ctx, &confirmer{bot: b, chatID: m.Chat.ID, owner: userID})
+	name := m.From.FirstName
+	if name == "" {
+		name = m.From.Username
+	}
+	owner := len(b.allowedUsers) > 0
+	ctx := conversation.WithSpeaker(b.ctx, conversation.Speaker{ID: userID, Name: name, Owner: owner})
+	ctx = guard.WithConfirmer(ctx, &confirmer{bot: b, chatID: m.Chat.ID, owner: userID})
 	response, attachments, err := b.agent.Reply(ctx, userID, content)
 	if err != nil {
 		log.Printf("agent error: %v", err)

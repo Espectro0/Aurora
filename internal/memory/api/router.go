@@ -22,6 +22,7 @@ func NewRouter(store memory.MemoryStore, journal *proposals.SimpleProcessor, g *
 
 	if voice != nil {
 		mux.Handle("POST /api/v1/voice", voice)
+		mux.HandleFunc("POST /api/v1/voice/confirm/{id}", voice.Confirm)
 	}
 	return mux
 }

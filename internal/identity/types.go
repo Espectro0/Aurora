@@ -10,6 +10,7 @@ type IdentityCore struct {
 	MemoryUsageRules         MemoryRules `json:"memory_usage_rules"`
 	LLM                      LLMConfig   `json:"llm"`
 	Guard                    GuardConfig `json:"guard"`
+	Sleep                    SleepConfig `json:"sleep"`
 }
 
 type MemoryRules struct {
@@ -27,6 +28,8 @@ type MemoryRules struct {
 	SameEntityThreshold        float64 `json:"same_entity_threshold"`
 	NodeReplaceThreshold       float64 `json:"node_replace_threshold"`
 	IdentityChangeThreshold    float64 `json:"identity_change_threshold"`
+	CuriosityThreshold         float64 `json:"curiosity_threshold"`
+	CuriosityCooldownHours     int     `json:"curiosity_cooldown_hours"`
 }
 
 type LLMConfig struct {
@@ -37,4 +40,25 @@ type LLMConfig struct {
 
 type GuardConfig struct {
 	ConfirmTimeoutSeconds int `json:"confirm_timeout_seconds"`
+}
+
+type SleepConfig struct {
+	Disabled          bool    `json:"disabled"`
+	Hour              int     `json:"hour"`
+	MergeThreshold    float64 `json:"merge_threshold"`
+	DecayHalfLifeDays float64 `json:"decay_half_life_days"`
+	RecallBoost       float64 `json:"recall_boost"`
+	ForgetThreshold   float64 `json:"forget_threshold"`
+	ForgetMinAgeDays  int     `json:"forget_min_age_days"`
+	MaxInterests      int     `json:"max_interests"`
+	TimeoutMinutes    int     `json:"timeout_minutes"`
+
+	ExploreDisabled     bool `json:"explore_disabled"`
+	MaxExplorations     int  `json:"max_explorations"`
+	ExploreCooldownDays int  `json:"explore_cooldown_days"`
+
+	SynthesisDisabled     bool    `json:"synthesis_disabled"`
+	MaxSyntheses          int     `json:"max_syntheses"`
+	SynthesisThreshold    float64 `json:"synthesis_threshold"`
+	SynthesisCooldownDays int     `json:"synthesis_cooldown_days"`
 }

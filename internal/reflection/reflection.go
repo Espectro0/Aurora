@@ -66,6 +66,10 @@ func (r *Reflector) Interval() int {
 }
 
 func (r *Reflector) Analyze(ctx context.Context, userID string) error {
+	return r.AnalyzeAs(ctx, userID, userID)
+}
+
+func (r *Reflector) AnalyzeAs(ctx context.Context, userID, owner string) error {
 	history := r.memory.History(userID)
 	if len(history) == 0 {
 		return nil
@@ -80,19 +84,41 @@ func (r *Reflector) Analyze(ctx context.Context, userID string) error {
 		history = history[len(history)-r.config.MaxHistory:]
 	}
 
-	if !r.worthReflecting(ctx, history) {
+	name := "el usuario"
+	if sp, ok := conversation.SpeakerFrom(ctx); ok && sp.Name != "" {
+		name = sp.Name
+	}
+
+	if !r.worthReflecting(ctx, history, name) {
 		return nil
 	}
 
 	msgs := []conversation.Message{
 		conversation.NewMessage(conversation.System, systemPrompt),
-		conversation.NewMessage(conversation.System, r.contextMessage()),
+		conversation.NewMessage(conversation.System, r.contextMessage(name)),
 	}
 	msgs = append(msgs, history...)
 
+	prop, err := r.propose(ctx, msgs)
+	if err != nil {
+		return err
+	}
+
+	prop.Owner = owner
+	r.enrich(ctx, &prop)
+
+	if err := r.proposals.Process(ctx, prop); err != nil {
+		return fmt.Errorf("reflection: process: %w", err)
+	}
+
+	log.Printf("[reflection] Analized conversation of %s: %s", userID, prop.Summary)
+	return nil
+}
+
+func (r *Reflector) propose(ctx context.Context, msgs []conversation.Message) (proposals.Proposal, error) {
 	response, err := r.llm.Chat(ctx, msgs)
 	if err != nil {
-		return fmt.Errorf("reflection: chat: %w", err)
+		return proposals.Proposal{}, fmt.Errorf("reflection: chat: %w", err)
 	}
 
 	prop, err := r.parseResponse(response)
@@ -102,23 +128,15 @@ func (r *Reflector) Analyze(ctx context.Context, userID string) error {
 
 		retryResponse, retryErr := r.llm.Chat(ctx, retryMsgs)
 		if retryErr != nil {
-			return fmt.Errorf("reflection: chat retry: %w", retryErr)
+			return proposals.Proposal{}, fmt.Errorf("reflection: chat retry: %w", retryErr)
 		}
 
 		prop, retryErr = r.parseResponse(retryResponse)
 		if retryErr != nil {
-			return fmt.Errorf("reflection: parse: %w", retryErr)
+			return proposals.Proposal{}, fmt.Errorf("reflection: parse: %w", retryErr)
 		}
 	}
-
-	r.enrich(ctx, &prop)
-
-	if err := r.proposals.Process(ctx, prop); err != nil {
-		return fmt.Errorf("reflection: process: %w", err)
-	}
-
-	log.Printf("[reflection] Analized conversation of %s: %s", userID, prop.Summary)
-	return nil
+	return prop, nil
 }
 
 var nodeTypes = map[string]string{
@@ -140,22 +158,32 @@ var edgeTypes = map[string]string{
 	edgeNone:                        "no hay una relación clara, directa y duradera entre ellas",
 }
 
+const (
+	scopePersonal = "personal"
+	scopeGeneral  = "general"
+)
+
+var nodeScopes = map[string]string{
+	scopePersonal: "trata de una persona concreta: su vida, gustos, proyectos, planes, salud, familia, amigos o algo que solo le concierne a ella",
+	scopeGeneral:  "conocimiento general válido para cualquiera (qué es algo, datos de un lugar, cómo funciona una tecnología), sin datos privados de nadie",
+}
+
 var importanceLevels = []string{
 	"trivial: detalle pasajero que no cambia nada si se olvida",
 	"útil: dato que puede ayudar en alguna conversación futura",
-	"importante: algo relevante en la vida, trabajo o gustos del usuario",
-	"central: parte esencial de quién es el usuario o de su relación con Aurora",
+	"importante: algo relevante en la vida, trabajo o gustos de la persona, o conocimiento general sólido y reutilizable",
+	"central: parte esencial de quién es la persona o de su relación con Aurora, o conocimiento fundamental sobre un tema que le interesa a Aurora",
 }
 
-func (r *Reflector) worthReflecting(ctx context.Context, history []conversation.Message) bool {
+func (r *Reflector) worthReflecting(ctx context.Context, history []conversation.Message, name string) bool {
 	if r.decision == nil {
 		return true
 	}
 
-	answers, err := r.decision.Judge(ctx, transcript(history), map[string]decision.Question{
+	answers, err := r.decision.Judge(ctx, transcript(history, name), map[string]decision.Question{
 		"substantive": {
 			Type:         decision.TypeNoul,
-			Instructions: "¿Esta conversación contiene información duradera que valga la pena recordar (hechos sobre el usuario, sus proyectos, gustos, personas o eventos), y no solo saludos, charla trivial o consultas pasajeras?",
+			Instructions: "¿Esta conversación contiene información duradera que valga la pena recordar (hechos sobre el usuario, sus proyectos, gustos, personas o eventos, o conocimiento general aprendido: qué es algo, cómo funciona una tecnología, datos de un lugar o tema), y no solo saludos, charla trivial o consultas pasajeras?",
 		},
 	})
 	if err != nil {
@@ -173,12 +201,12 @@ func (r *Reflector) worthReflecting(ctx context.Context, history []conversation.
 	return true
 }
 
-func transcript(history []conversation.Message) string {
+func transcript(history []conversation.Message, name string) string {
 	var b strings.Builder
 	for _, m := range history {
 		switch m.Role {
 		case conversation.User:
-			fmt.Fprintf(&b, "usuario: %s\n", m.Content)
+			fmt.Fprintf(&b, "%s: %s\n", name, m.Content)
 		case conversation.Assistant:
 			if m.Content != "" {
 				fmt.Fprintf(&b, "Aurora: %s\n", m.Content)
@@ -188,8 +216,9 @@ func transcript(history []conversation.Message) string {
 	return b.String()
 }
 
-func (r *Reflector) contextMessage() string {
+func (r *Reflector) contextMessage(name string) string {
 	var b strings.Builder
+	fmt.Fprintf(&b, "Esta conversación fue con: %s\n\n", name)
 	if r.identity != nil {
 		id := r.identity.Get()
 		b.WriteString("Tu identidad actual:\n")
@@ -249,6 +278,11 @@ func (r *Reflector) resolveMood(ctx context.Context, j *proposals.JournalProp) {
 }
 
 func (r *Reflector) classifyNodes(ctx context.Context, m *proposals.MemoryProp) {
+	var speakerName string
+	if sp, ok := conversation.SpeakerFrom(ctx); ok {
+		speakerName = strings.ToLower(strings.TrimSpace(sp.Name))
+	}
+
 	keep := make([]bool, len(m.Nodes))
 	forEachLimit(len(m.Nodes), func(i int) {
 		n := &m.Nodes[i]
@@ -270,8 +304,13 @@ func (r *Reflector) classifyNodes(ctx context.Context, m *proposals.MemoryProp) 
 			},
 			"importance": {
 				Type:         decision.TypeScore,
-				Instructions: "¿Qué tan importante es este recuerdo a largo plazo para conocer al usuario?",
+				Instructions: "¿Qué tan importante es este recuerdo a largo plazo, ya sea para conocer a la persona o como conocimiento general que Aurora pueda reutilizar?",
 				Levels:       importanceLevels,
+			},
+			"scope": {
+				Type:         decision.TypeChoice,
+				Instructions: "¿Este recuerdo es información personal de alguien o conocimiento general que se puede compartir con cualquier persona?",
+				Criteria:     nodeScopes,
 			},
 		})
 		if err != nil {
@@ -296,6 +335,14 @@ func (r *Reflector) classifyNodes(ctx context.Context, m *proposals.MemoryProp) 
 		if imp, ok := answers["importance"]; ok {
 			v := normalizeLevel(imp.Score, len(importanceLevels))
 			n.Importance = &v
+		}
+
+		if sc, ok := answers["scope"]; ok && sc.Choice == scopeGeneral {
+			n.Shared = true
+		}
+		if n.Type == string(memory.NodeProject) ||
+			(speakerName != "" && strings.Contains(strings.ToLower(n.Label+" "+n.Content), speakerName)) {
+			n.Shared = false
 		}
 	})
 

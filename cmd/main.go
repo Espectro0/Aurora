@@ -31,6 +31,8 @@ import (
 	"github.com/Espectro0/AuroraProject/internal/skills/clock"
 	"github.com/Espectro0/AuroraProject/internal/skills/cornare"
 	"github.com/Espectro0/AuroraProject/internal/skills/siata"
+	sleepskill "github.com/Espectro0/AuroraProject/internal/skills/sleep"
+	"github.com/Espectro0/AuroraProject/internal/sleep"
 	"github.com/Espectro0/AuroraProject/internal/telegram"
 	"github.com/Espectro0/AuroraProject/internal/voice"
 )
@@ -98,6 +100,10 @@ func main() {
 		WorthKeepingThreshold: rules.WorthKeepingThreshold,
 	})
 
+	sleeper := sleep.New(memStore, codeLLM, decisionClient, idCore, propSystem.Journal(), sleep.Config{
+		StatePath: "data/sleep.json",
+	})
+
 	siataClient := siata.NewClient(httpclient.New(30 * time.Second))
 	cornareClient := cornare.NewClient(httpclient.New(30 * time.Second))
 
@@ -105,6 +111,7 @@ func main() {
 	skillRegistry.Register(clock.New())
 	skillRegistry.Register(siata.New(siataClient))
 	skillRegistry.Register(cornare.New(cornareClient))
+	skillRegistry.Register(sleepskill.New(sleeper))
 
 	if cfg.ApirocAPIKey != "" && cfg.ApirocEndUserAccountID != "" {
 		calendarClient := calendar.NewClient(cfg.ApirocBaseURL, cfg.ApirocAPIKey, cfg.ApirocEndUserAccountID)
@@ -153,6 +160,11 @@ func main() {
 	skillRegistry.Register(capabilities.New(skillRegistry))
 
 	a := agent.NewAgent(llmClient, idCore, mem, memStore, reflector, skillRegistry)
+	a.SetOwnerMemoryID(cfg.OwnerUniversalID)
+	migrateOwnerMemories(ctx, memStore, cfg)
+	sleeper.SetLocker(a.MemoryLock())
+	sleeper.SetExplorer(skillRegistry, reflector)
+	sleeper.Start(ctx)
 
 	var voiceHandler *api.VoiceHandler
 	if cfg.APIToken != "" {
@@ -177,7 +189,7 @@ func main() {
 		}
 	}()
 
-	discordBot := discord.NewBot(cfg.DiscordToken, a, cfg.AllowedDiscordUserIDs)
+	discordBot := discord.NewBot(cfg.DiscordToken, a, cfg.DiscordOwnerID, cfg.DiscordHomeGuildID)
 	if err := discordBot.Run(ctx); err != nil {
 		log.Fatal(err)
 	}
@@ -194,4 +206,38 @@ func main() {
 	<-ctx.Done()
 	log.Println("Aurora's shutting down...")
 	a.Wait()
+	sleeper.Wait()
+}
+
+// migrateOwnerMemories moves the private memories stored under each of the
+// owner's per-platform IDs into OwnerUniversalID, so every platform sees them.
+func migrateOwnerMemories(ctx context.Context, store memory.MemoryStore, cfg *config.Config) {
+	legacy := map[string]bool{"panel:voice": true}
+	if cfg.DiscordOwnerID != "" {
+		legacy["discord:"+cfg.DiscordOwnerID] = true
+	}
+	for _, id := range cfg.AllowedTelegramUserIDs {
+		legacy["telegram:"+id] = true
+	}
+	delete(legacy, cfg.OwnerUniversalID)
+
+	nodes, err := store.ListNodes(ctx)
+	if err != nil {
+		log.Printf("[memory] owner migration: %v", err)
+		return
+	}
+	moved := 0
+	for _, n := range nodes {
+		if !legacy[n.Owner] {
+			continue
+		}
+		if err := store.SetOwner(ctx, n.ID, cfg.OwnerUniversalID); err != nil {
+			log.Printf("[memory] owner migration %s: %v", n.ID, err)
+			continue
+		}
+		moved++
+	}
+	if moved > 0 {
+		log.Printf("[memory] moved %d owner memories to %q", moved, cfg.OwnerUniversalID)
+	}
 }

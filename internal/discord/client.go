@@ -12,7 +12,7 @@ func (b *Bot) Run(ctx context.Context) error {
 	b.ctx = ctx
 
 	client, err := disgo.New(b.token,
-		bot.WithGatewayConfigOpts(gateway.WithIntents(gateway.IntentGuildMessages|gateway.IntentMessageContent)),
+		bot.WithGatewayConfigOpts(gateway.WithIntents(gateway.IntentGuildMessages|gateway.IntentDirectMessages|gateway.IntentMessageContent)),
 		bot.WithEventManagerConfigOpts(bot.WithAsyncEventsEnabled()),
 		bot.WithEventListenerFunc(b.onMessageCreate),
 		bot.WithEventListenerFunc(b.onComponent),

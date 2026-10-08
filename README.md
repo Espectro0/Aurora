@@ -51,7 +51,7 @@ A read-only HTTP API on port `8095` exposes the graph (`GET /api/v1/edges`) and 
  
 ## Skills
  
-Built-in: `hora_actual`, `radar_siata`, `cornare`, `calendar_*` (if `APIROC_*` is set), and `listar_capacidades` (lists everything Aurora can do). Requires a chat model with tool calling.
+Built-in: `hora_actual`, `radar_siata`, `cornare`, `dormir` (runs the sleep cycle on demand), `calendar_*` (if `APIROC_*` is set), and `listar_capacidades` (lists everything Aurora can do). Requires a chat model with tool calling.
  
 To add one, implement `skills.Skill` (`internal/skills/interfaces.go`) in a subpackage and register it in `cmd/main.go`. Skill results are treated as live data and never become memories.
  
@@ -113,8 +113,10 @@ Blocked calls return the reason to the LLM so it can tell the user.
 | `OPENROUTER_EMBED_MODEL` | yes | — | Embedding model |
 | `OPENROUTER_REFLECTION_MODEL` | no | chat model | Reflection model |
 | `OPENROUTER_DECISION_MODEL` | no | `jev-latest` | Decision model |
-| `ALLOWED_DISCORD_USER_ID` | no | — | Restrict Discord to these users (comma-separated IDs) |
+| `DISCORD_OWNER_ID` | no | — | Your Discord user ID: the only one treated as owner (skills). Anyone else can chat — in DMs, or in servers by mentioning/replying to Aurora — without skills |
+| `DISCORD_HOME_GUILD_ID` | no | — | Server ID where the owner is answered without mentioning Aurora. If set, in any other server the owner must mention/reply to her like everyone else; empty = owner answered without mention in every server |
 | `ALLOWED_TELEGRAM_USER_ID` | no | — | Restrict Telegram to these users (comma-separated IDs) |
+| `OWNER_UNIVERSAL_ID` | no | `owner` | Owner of your private long-term memories across Discord (owner), Telegram (whitelist) and panel voice; other users never see them. Memories stored under the old per-platform IDs are moved to it on startup |
 | `APIROC_API_KEY`, `APIROC_USER_ID` | no | — | Enable the calendar skills |
 | `APIROC_BASE_URL` | no | `https://api.apiroc.com/api/v1` | Calendar API base URL |
 | `QDRANT_URL` | no | `http://localhost:6333` | Qdrant base URL |

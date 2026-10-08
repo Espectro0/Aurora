@@ -5,6 +5,7 @@ import "time"
 type Proposal struct {
 	ReflectionID string         `json:"reflection_id"`
 	Timestamp    time.Time      `json:"timestamp"`
+	Owner        string         `json:"-"`
 	Summary      string         `json:"conversation_summary"`
 	Journal      *JournalProp   `json:"journal,omitempty"`
 	Memory       *MemoryProp    `json:"memories,omitempty"`
@@ -57,4 +58,5 @@ type NodeProp struct {
 	Label      string   `json:"label"`
 	Content    string   `json:"content"`
 	Importance *float64 `json:"-"`
+	Shared     bool     `json:"-"`
 }

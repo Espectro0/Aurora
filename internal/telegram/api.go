@@ -77,8 +77,9 @@ func (c *apiClient) call(ctx context.Context, method string, body any, out any) 
 }
 
 type user struct {
-	ID       int64  `json:"id"`
-	Username string `json:"username"`
+	ID        int64  `json:"id"`
+	Username  string `json:"username"`
+	FirstName string `json:"first_name"`
 }
 
 type chat struct {
